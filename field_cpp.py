@@ -103,7 +103,7 @@ class Env: # Contains all the logic of the CPP Environment
                 perpendicular_heading_radians = edge_angle_radians + math.radians(90)
                 perpendicular_heading_degrees = math.degrees(perpendicular_heading_radians)
 
-                self.start_point = (px, py)
+                self.start_point = [px, py]
                 self.heading = perpendicular_heading_degrees % 360
                 return 
             cumulative_distance += segment_length
@@ -160,10 +160,6 @@ class Env: # Contains all the logic of the CPP Environment
         new_left_edge = []
         new_right_edge = []
 
-        complete_path = self.path
-        complete_left_edge = self.left_edge
-        complete_right_edge = self.right_edge
-
         for i in range(self.sub_steps):
             if i == 0:
                 mid, top, bot, initial_top, initial_bot = self.next_point_in_path(spline_len, spline_angle, start=True)
@@ -173,26 +169,18 @@ class Env: # Contains all the logic of the CPP Environment
                 mid, top, bot, _, _ = self.next_point_in_path(spline_len, spline_angle)
             self.heading += spline_angle
 
-            new_path.append(mid)
-            new_left_edge.append(top)
-            new_right_edge.append(bot)
-
-        complete_path.extend(new_path)
-        complete_left_edge.extend(new_left_edge)
-        complete_right_edge.extend(new_right_edge)
+            self.path.extend([mid])
+            self.left_edge.extend([top])
+            self.right_edge.extend([bot])
 
         # Create the path polygon
         self.path_polygon = self.left_edge + list(reversed(self.right_edge))
         if self.path_polygon[0] != self.path_polygon[-1]:
             self.path_polygon.append(self.path_polygon[0])
      
-        self.left_edge = complete_left_edge
-        self.right_edge = complete_right_edge
-        self.new_path = new_path
-
 
     def extend_path(self, distance, steering_angle):
-       self.steering_to_curve(distance, steering_angle)
+       self.steering_to_curve(distance=distance, steering_angle=steering_angle)
 
     def position(self):
         self.position = self.path[-1]
