@@ -5,6 +5,7 @@ import math
 import pyclipper
 from scipy.spatial import ConvexHull
 from matplotlib.patches import Polygon
+from matplotlib.animation import FuncAnimation
 
 class Env: # Contains all the logic of the CPP Environment  
     def __init__(self, max_size=1000, num_points=8, vehicle_width=10, sub_steps=10):
@@ -232,7 +233,7 @@ class Env: # Contains all the logic of the CPP Environment
 
 class Gym:
     def __init__(self):
-        self.env = Env(max_size=1000, num_points=8,vehicle_width=10, sub_steps=10)
+        self.env = Env(max_size=1000, num_points=8,vehicle_width=100, sub_steps=10)
 
     def step(self, visualize=False):
         observation = self.env.matrix
@@ -250,13 +251,47 @@ class Gym:
         lst = list(zip(*obs))
         print(lst)
 
-      
+class AnimatedGym:
+    def __init__(self):
+        self.env = Env(max_size=1000, num_points=8, vehicle_width=40, sub_steps=10)
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        self.setup_plot()
+    def setup_plot(self):
+        # Plot the field
+        field_polygon = Polygon(self.env.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
+        self.ax.add_patch(field_polygon)
+        # Set axis limits and properties
+        self.ax.set_xlim(self.env.bounding_box[0], self.env.bounding_box[1])
+        self.ax.set_ylim(self.env.bounding_box[2], self.env.bounding_box[3])
+        self.ax.set_aspect('equal', 'box')
+        self.ax.set_xlabel('X')
+        self.ax.set_ylabel('Y')
+        for spine in self.ax.spines.values():
+            spine.set_visible(False)
+        # Initialize empty line for the path
+        self.path_line, = self.ax.plot([], [], 'r-', linewidth=2, label='Path')
+        self.ax.legend()
+    def animate(self, frame):
+        # Perform a step
+        distance = np.random.randint(10, 100)
+        steering_angle = np.random.randint(-60, 60)
+        self.env.extend_path(distance=distance, steering_angle=steering_angle)
+        self.env.update_matrix()
+        # Update the path line
+        path_x, path_y = zip(*self.env.path)
+        self.path_line.set_data(path_x, path_y)
+        # Update the path polygon
+        for patch in self.ax.patches[1:]:  # Remove old path polygons, keeping the field polygon
+            patch.remove()
+        path_poly_patch = Polygon(self.env.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
+        self.ax.add_patch(path_poly_patch)
+        return self.path_line, path_poly_patch
+    def run_animation(self, num_frames=30, interval=500):
+        anim = FuncAnimation(self.fig, self.animate, frames=num_frames, interval=interval, blit=True, repeat=False)
+        plt.show()
 # Usage
-gym = Gym()
-
-for i in range(30): 
-    gym.step(visualize=True)
-gym.eval()
+animated_gym = AnimatedGym()
+animated_gym.run_animation(num_frames=300, interval=500)
 
 
 
