@@ -15,10 +15,12 @@ class Env: # Contains all the logic of the CPP Environment
         self.bounding_box = []             # Bounding Box of the generated field 
         self.cover_polygon = []            # A polygon that records the intersection between the Vehicle Path and the Field 
         self.path_matrix = None            # A Matrix that is 1 where the vehicle covered the field and 0 where it didnt pass. 
+        self.start_point = None
+        self.heading = None 
 
-        self.polygon = self.create_field(max_size, num_points)
-        self.matrix = self.create_field_matrix(self.polygon)
-        self.start_point, self.heading = self.random_point_on_polygon_perimeter(self.polygon)
+        self.create_field()
+        self.create_field_matrix()
+        self.random_point_on_polygon_perimeter()
 
         self.visit_matrix = np.zeros_like(self.matrix, dtype=np.int32) # Records the number of times each cell gets visited, used for visualization 
 
@@ -29,7 +31,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.left_edge = []
         self.right_edge = []
 
-    def create_field(self, num_points=8):
+    def create_field(self):
         points = np.random.randint(0, self.max_size, size=(self.num_points, 2))
         hull = ConvexHull(points)
         field_points = points[hull.vertices].tolist()
@@ -101,12 +103,14 @@ class Env: # Contains all the logic of the CPP Environment
                 perpendicular_heading_radians = edge_angle_radians + math.radians(90)
                 perpendicular_heading_degrees = math.degrees(perpendicular_heading_radians)
 
-                return (px, py), perpendicular_heading_degrees % 360
+                self.start_point = (px, py)
+                self.heading = perpendicular_heading_degrees % 360
+                return 
             cumulative_distance += segment_length
 
 
     def next_point_in_path(self, path, spline_len, heading_degrees, spline_angle_degrees, width, start = False):
-        x1, y1 = path[-1]
+        x1, y1 = self.path[-1]
         total_angle_radians = math.radians(heading_degrees + spline_angle_degrees)
 
         # Calculate the endpoint
@@ -145,10 +149,9 @@ class Env: # Contains all the logic of the CPP Environment
         offset_dy = 0.5 * width * math.sin(offset_angle)
         return offset_dx, offset_dy
 
-    def steering_to_curve(self, path, distance, steering_angle, heading, width, sub_steps):
+    def steering_to_curve(self, distance, steering_angle, heading, width, sub_steps):
         if steering_angle < -90 or steering_angle > 90:
             raise ValueError("only works with steering angles up to +/- 90 degrees")
-
 
         spline_len = distance / sub_steps
         spline_angle = steering_angle / sub_steps
@@ -159,7 +162,7 @@ class Env: # Contains all the logic of the CPP Environment
 
         for i in range(sub_steps):
             if i == 0:
-                mid, top, bot, initial_top, initial_bot = self.next_point_in_path(path, spline_len, heading, spline_angle, width, start=True)
+                mid, top, bot, initial_top, initial_bot = self.next_point_in_path(self.path, spline_len, heading, spline_angle, width, start=True)
                 new_left_edge.append(initial_top)
                 new_right_edge.append(initial_bot)
             else:
@@ -170,7 +173,7 @@ class Env: # Contains all the logic of the CPP Environment
             new_left_edge.append(top)
             new_right_edge.append(bot)
 
-        path.extend(new_path)
+        self.path.extend(new_path)
         self.left_edge.extend(new_left_edge)
         self.right_edge.extend(new_right_edge)
 
@@ -180,12 +183,12 @@ class Env: # Contains all the logic of the CPP Environment
             self.path_polygon.append(self.path_polygon[0])
 
         self.heading = heading
-        self.path = path
+     
+        return new_path, heading, self.path_polygon
 
-        return path, new_path, heading, self.path_polygon
+    def extend_path(self,distance, steering_angle, heading):
+        self.new_path, self.heading, self.path_polygon = self.steering_to_curve(distance, steering_angle, heading, self.width, self.sub_steps)
 
-    def extend_path(self, path, distance, steering_angle, heading):
-        self.path, self.new_path, self.heading, self.path_polygon = self.steering_to_curve(path, distance, steering_angle, heading, self.width, self.sub_steps)
     def position(self):
         self.position = self.path[-1]
 
@@ -236,32 +239,26 @@ class Env: # Contains all the logic of the CPP Environment
 
 class Gym:
     def __init__(self):
-        self.Env = None
-
-    def initialize(self):
-        env = Env(max_size=1000, num_points=8,vehicle_width=10, sub_steps=10)
-
-        inital_path, initial_heading = self.env.random_point_on_polygon_perimeter(self.env.polygon)
+        self.env = Env(max_size=1000, num_points=8,vehicle_width=10, sub_steps=10)
 
     def step(self, visualize=False):
-        observation = self.Env.matrix
+        observation = self.env.matrix
         distance = np.random.randint(10, 100)
         steering_angle = np.random.randint(-60, 60)
-        self.Env.extend_path(path=self.path_obj.path, distance=distance, steering_angle=steering_angle, heading=self.path_obj.heading)
-        self.Env.update_matrix(self.field.polygon, self.path_obj.path_polygon)
+        self.env.extend_path(distance=distance, steering_angle=steering_angle, heading=self.env.heading)
+        self.env.update_matrix()
 
         if visualize: 
-            self.Env.visualize(path=self.path_obj.path, path_poly=self.path_obj.path_polygon, show_visits=True)
+            self.env.visualize(path=self.env.path, path_poly=self.env.path_polygon, show_visits=False)
 
     def eval(self):
-        values, counts = np.unique(self.Env.matrix, return_counts=True)
+        values, counts = np.unique(self.env.matrix, return_counts=True)
         obs = zip(values, counts)
         lst = list(zip(*obs))
         print(lst)
         
 # Usage
 gym = Gym()
-gym.initialize()
 
 for i in range(30): 
     gym.step(visualize=True)
