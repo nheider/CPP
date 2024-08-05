@@ -163,8 +163,8 @@ class Env: # Contains all the logic of the CPP Environment
         for i in range(self.sub_steps):
             if i == 0:
                 mid, top, bot, initial_top, initial_bot = self.next_point_in_path(spline_len, spline_angle, start=True)
-                new_left_edge.append(initial_top)
-                new_right_edge.append(initial_bot)
+                self.left_edge.append(initial_top)
+                self.right_edge.append(initial_bot)
             else:
                 mid, top, bot, _, _ = self.next_point_in_path(spline_len, spline_angle)
             self.heading += spline_angle
