@@ -15,7 +15,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.num_points = num_points       # Number of random points for the convex hull field generator, higher number = higher mean number of fiel vertices 
         self.bounding_box = []             # Bounding Box of the generated field 
         self.cover_polygon = []            # A polygon that records the intersection between the Vehicle Path and the Field 
-        self.path_matrix = None            # A Matrix that is 1 where the vehicle covered the field and 0 where it didnt pass. 
+        self.cover_matrix = None            # A Matrix that is 1 where the vehicle covered the field and 0 where it didnt pass. 
         self.start_point = None
         self.heading = None 
         
@@ -54,18 +54,22 @@ class Env: # Contains all the logic of the CPP Environment
         count_of_elements = np.sum(mask)
         return count_of_elements
 
-    def cover_polygon(self):
+    def create_cover_polygon(self):
         pc = pyclipper.Pyclipper()
         pc.AddPath(self.path_polygon, pyclipper.PT_SUBJECT, True)
         pc.AddPath(self.polygon, pyclipper.PT_CLIP, True)
         intersection = pc.Execute(pyclipper.CT_INTERSECTION, pyclipper.PFT_EVENODD, pyclipper.PFT_EVENODD)
         self.cover_polygon = intersection       # A Polygon that represents the intersection of the vehicle path and the field 
+        
+    def create_cover_matrix(self):
+        cover_polygon_vertices = np.array([self.cover_polygon], dtype=np.int32)
+        self.cover_matrix = cv2.fillPoly(self.matrix, cover_polygon_vertices, 1)  
 
     def update_matrix(self):
-        self.matrix[(self.matrix != 99) & (self.path_matrix == 1)] = 1
+        self.matrix[(self.matrix != 99) & (self.cover_matrix == 1)] = 1
 
     def update_visit_counts(self):
-        self.visit_matrix[(self.matrix != 99) & (self.path_matrix == 1)] += 1  
+        self.visit_matrix[(self.matrix != 99) & (self.cover_matrix == 1)] += 1  
 
     def get_stats(self):
         field_mask = self.matrix != 99
@@ -186,7 +190,17 @@ class Env: # Contains all the logic of the CPP Environment
     def position(self):
         self.position = self.path[-1]
 
-    def visualize(self, path=None, path_poly=None, show_visits=False):
+    def step(self, distance, steering_angle, visualize=False): 
+        self.extend_path(distance=distance, steering_angle=steering_angle)
+        self.create_cover_polygon()
+        self.create_cover_matrix()
+        self.update_matrix()
+        self.update_visit_counts()
+
+        if visualize: 
+            self.visualize(show_visits=True)
+
+    def visualize(self, show_visits=False):
         fig, ax = plt.subplots(figsize=(10, 10))
     
         if show_visits:
@@ -200,13 +214,13 @@ class Env: # Contains all the logic of the CPP Environment
         ax.add_patch(field_polygon)
     
      # Plot the path if provided
-        if path:
-            path_x, path_y = zip(*path)
+        if self.path:
+            path_x, path_y = zip(*self.path)
             ax.plot(path_x, path_y, 'r-', linewidth=2, label='Path')
     
         # Plot the path polygon if provided
-        if path_poly:
-            path_poly_patch = Polygon(path_poly, facecolor='red', edgecolor='red', alpha=0.3)
+        if self.path_polygon:
+            path_poly_patch = Polygon(self.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
             ax.add_patch(path_poly_patch)
     
         # Set axis limits
@@ -239,11 +253,7 @@ class Gym:
         observation = self.env.matrix
         distance = np.random.randint(10, 100)
         steering_angle = np.random.randint(-60, 60)
-        self.env.extend_path(distance=distance, steering_angle=steering_angle)
-        self.env.update_matrix()
-
-        if visualize: 
-            self.env.visualize(path=self.env.path, path_poly=self.env.path_polygon, show_visits=False)
+        self.env.step(distance=distance, steering_angle=steering_angle, visualize=True)
 
     def eval(self):
         values, counts = np.unique(self.env.matrix, return_counts=True)
@@ -251,6 +261,12 @@ class Gym:
         lst = list(zip(*obs))
         print(lst)
 
+gym = Gym()
+for i in range(10):
+    gym.step(visualize=True)
+gym.eval()
+
+'''
 class AnimatedGym:
     def __init__(self):
         self.env = Env(max_size=1000, num_points=8, vehicle_width=40, sub_steps=10)
@@ -287,12 +303,12 @@ class AnimatedGym:
         self.ax.add_patch(path_poly_patch)
         return self.path_line, path_poly_patch
     def run_animation(self, num_frames=30, interval=500):
-        anim = FuncAnimation(self.fig, self.animate, frames=num_frames, interval=interval, blit=True, repeat=False)
+        anim = FuncAnimation(self.fig, self.animate, frames=num_frames, interval=interval, blit=False, repeat=False)  # for mac: blit = False
         plt.show()
 # Usage
 animated_gym = AnimatedGym()
 animated_gym.run_animation(num_frames=300, interval=500)
 
-
+'''
 
 
