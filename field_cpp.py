@@ -17,7 +17,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.path_matrix = None            # A Matrix that is 1 where the vehicle covered the field and 0 where it didnt pass. 
         self.start_point = None
         self.heading = None 
-
+        
         self.create_field()
         self.create_field_matrix()
         self.random_point_on_polygon_perimeter()
@@ -109,17 +109,17 @@ class Env: # Contains all the logic of the CPP Environment
             cumulative_distance += segment_length
 
 
-    def next_point_in_path(self, path, spline_len, heading_degrees, spline_angle_degrees, width, start = False):
+    def next_point_in_path(self, spline_len, spline_angle_degrees, start = False):
         x1, y1 = self.path[-1]
-        total_angle_radians = math.radians(heading_degrees + spline_angle_degrees)
+        total_angle_radians = math.radians(self.heading + spline_angle_degrees)
 
         # Calculate the endpoint
         x2 = x1 + spline_len * math.cos(total_angle_radians)
         y2 = y1 + spline_len * math.sin(total_angle_radians)
 
         # Calculate offsets for width
-        offset_top_dx, offset_top_dy = self.calculate_offsets(total_angle_radians, width)
-        offset_bottom_dx, offset_bottom_dy = self.calculate_offsets(total_angle_radians, -width)
+        offset_top_dx, offset_top_dy = self.calculate_offsets(total_angle_radians, self.width)
+        offset_bottom_dx, offset_bottom_dy = self.calculate_offsets(total_angle_radians, -self.width)
 
         # Top and bottom endpoints
         x2_top = x2 + offset_top_dx
@@ -129,9 +129,9 @@ class Env: # Contains all the logic of the CPP Environment
 
         # Edge case width for the first ever segment, that gets placed randomly # To do: rewrite function so this is not needed 
         if start: 
-            initial_angle_radians = math.radians(heading_degrees)
-            initial_offset_top_dx, initial_offset_top_dy = self.calculate_offsets(initial_angle_radians, width)
-            initial_offset_bottom_dx, initial_offset_bottom_dy = self.calculate_offsets(initial_angle_radians, -width)
+            initial_angle_radians = math.radians(self.heading)
+            initial_offset_top_dx, initial_offset_top_dy = self.calculate_offsets(initial_angle_radians, self.width)
+            initial_offset_bottom_dx, initial_offset_bottom_dy = self.calculate_offsets(initial_angle_radians, -self.width)
             
             x1_top = x1 + initial_offset_top_dx
             y1_top = y1 + initial_offset_top_dy
@@ -149,45 +149,50 @@ class Env: # Contains all the logic of the CPP Environment
         offset_dy = 0.5 * width * math.sin(offset_angle)
         return offset_dx, offset_dy
 
-    def steering_to_curve(self, distance, steering_angle, heading, width, sub_steps):
+    def steering_to_curve(self, distance, steering_angle):
         if steering_angle < -90 or steering_angle > 90:
             raise ValueError("only works with steering angles up to +/- 90 degrees")
 
-        spline_len = distance / sub_steps
-        spline_angle = steering_angle / sub_steps
+        spline_len = distance / self.sub_steps
+        spline_angle = steering_angle / self.sub_steps
 
         new_path = []
         new_left_edge = []
         new_right_edge = []
 
-        for i in range(sub_steps):
+        complete_path = self.path
+        complete_left_edge = self.left_edge
+        complete_right_edge = self.right_edge
+
+        for i in range(self.sub_steps):
             if i == 0:
-                mid, top, bot, initial_top, initial_bot = self.next_point_in_path(self.path, spline_len, heading, spline_angle, width, start=True)
+                mid, top, bot, initial_top, initial_bot = self.next_point_in_path(spline_len, spline_angle, start=True)
                 new_left_edge.append(initial_top)
                 new_right_edge.append(initial_bot)
             else:
-                mid, top, bot, _, _ = self.next_point_in_path(new_path, spline_len, heading, spline_angle, width)
-            heading += spline_angle
+                mid, top, bot, _, _ = self.next_point_in_path(spline_len, spline_angle)
+            self.heading += spline_angle
 
             new_path.append(mid)
             new_left_edge.append(top)
             new_right_edge.append(bot)
 
-        self.path.extend(new_path)
-        self.left_edge.extend(new_left_edge)
-        self.right_edge.extend(new_right_edge)
+        complete_path.extend(new_path)
+        complete_left_edge.extend(new_left_edge)
+        complete_right_edge.extend(new_right_edge)
 
         # Create the path polygon
         self.path_polygon = self.left_edge + list(reversed(self.right_edge))
         if self.path_polygon[0] != self.path_polygon[-1]:
             self.path_polygon.append(self.path_polygon[0])
-
-        self.heading = heading
      
-        return new_path, heading, self.path_polygon
+        self.left_edge = complete_left_edge
+        self.right_edge = complete_right_edge
+        self.new_path = new_path
 
-    def extend_path(self,distance, steering_angle, heading):
-        self.new_path, self.heading, self.path_polygon = self.steering_to_curve(distance, steering_angle, heading, self.width, self.sub_steps)
+
+    def extend_path(self, distance, steering_angle):
+       self.steering_to_curve(distance, steering_angle)
 
     def position(self):
         self.position = self.path[-1]
@@ -245,7 +250,7 @@ class Gym:
         observation = self.env.matrix
         distance = np.random.randint(10, 100)
         steering_angle = np.random.randint(-60, 60)
-        self.env.extend_path(distance=distance, steering_angle=steering_angle, heading=self.env.heading)
+        self.env.extend_path(distance=distance, steering_angle=steering_angle)
         self.env.update_matrix()
 
         if visualize: 
@@ -256,13 +261,15 @@ class Gym:
         obs = zip(values, counts)
         lst = list(zip(*obs))
         print(lst)
-        
+
+      
 # Usage
 gym = Gym()
 
 for i in range(30): 
     gym.step(visualize=True)
 gym.eval()
+
 
 
 
