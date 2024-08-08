@@ -8,16 +8,17 @@ from matplotlib.patches import Polygon
 from matplotlib.animation import FuncAnimation
 
 class Env: # Contains all the logic of the CPP Environment  
-    def __init__(self, max_size=1000, num_points=8, vehicle_width=10, sub_steps=10):
+    def __init__(self, max_size=200, num_points=8, vehicle_width=10, sub_steps=10):
 
         # Field Variables 
         self.max_size = max_size           # Largest possible x and y-coords of the field
         self.num_points = num_points       # Number of random points for the convex hull field generator, higher number = higher mean number of fiel vertices 
         self.bounding_box = []             # Bounding Box of the generated field 
         self.cover_polygon = []            # A polygon that records the intersection between the Vehicle Path and the Field 
-        self.cover_matrix = None            # A Matrix that is 1 where the vehicle covered the field and 0 where it didnt pass. 
+        self.cover_matrix = None           # A Matrix that is 1 where the vehicle covered the field and 0 where it didnt pass. 
         self.start_point = None
         self.heading = None 
+        self.new_polygon = None           # Used to update the visit count matrix 
         
         self.create_field()
         self.create_field_matrix()
@@ -54,12 +55,14 @@ class Env: # Contains all the logic of the CPP Environment
         count_of_elements = np.sum(mask)
         return count_of_elements
 
+    '''
     def create_cover_polygon(self):
         pc = pyclipper.Pyclipper()
         pc.AddPath(self.path_polygon, pyclipper.PT_SUBJECT, True)
         pc.AddPath(self.polygon, pyclipper.PT_CLIP, True)
         intersection = pc.Execute(pyclipper.CT_INTERSECTION, pyclipper.PFT_EVENODD, pyclipper.PFT_EVENODD)
         self.cover_polygon = intersection       # A Polygon that represents the intersection of the vehicle path and the field 
+    '''
         
     def create_cover_matrix(self):
         cover_polygon_vertices = np.array([self.cover_polygon], dtype=np.int32)
@@ -164,12 +167,14 @@ class Env: # Contains all the logic of the CPP Environment
         new_path = []
         new_left_edge = []
         new_right_edge = []
+        self.cover_polygon = []
 
         for i in range(self.sub_steps):
             if i == 0:
                 mid, top, bot, initial_top, initial_bot = self.next_point_in_path(spline_len, spline_angle, start=True)
                 self.left_edge.append(initial_top)
                 self.right_edge.append(initial_bot)
+
             else:
                 mid, top, bot, _, _ = self.next_point_in_path(spline_len, spline_angle)
             self.heading += spline_angle
@@ -178,12 +183,20 @@ class Env: # Contains all the logic of the CPP Environment
             self.left_edge.extend([top])
             self.right_edge.extend([bot])
 
+        # new_path and new_polygon get used to update the cell visit count 
+            new_path.extend([mid])
+            new_left_edge.extend([top])
+            new_right_edge.extend([bot])
+
+        self.cover_polygon = new_left_edge + list(reversed(new_right_edge))
+        if self.cover_polygon[0] != self.cover_polygon[-1]:
+            self.cover_polygon.append(self.cover_polygon[0])
+
         # Create the path polygon
         self.path_polygon = self.left_edge + list(reversed(self.right_edge))
         if self.path_polygon[0] != self.path_polygon[-1]:
             self.path_polygon.append(self.path_polygon[0])
      
-
     def extend_path(self, distance, steering_angle):
        self.steering_to_curve(distance=distance, steering_angle=steering_angle)
 
@@ -192,7 +205,7 @@ class Env: # Contains all the logic of the CPP Environment
 
     def step(self, distance, steering_angle, visualize=False): 
         self.extend_path(distance=distance, steering_angle=steering_angle)
-        self.create_cover_polygon()
+        #self.create_cover_polygon()
         self.create_cover_matrix()
         self.update_matrix()
         self.update_visit_counts()
@@ -205,9 +218,15 @@ class Env: # Contains all the logic of the CPP Environment
     
         if show_visits:
             # Create a masked array for visit counts
-            masked_visits = np.ma.masked_where(self.matrix == 99, self.visit_matrix)
-            im = ax.imshow(masked_visits, cmap='viridis', interpolation='nearest')
-            plt.colorbar(im, ax=ax, label='Visit Count')
+            #masked_visits = np.ma.masked_where(self.matrix == 99, self.visit_matrix)
+            #im = ax.imshow(masked_visits, cmap='viridis', interpolation='nearest')
+            #plt.colorbar(im, ax=ax, label='Visit Count')
+            plt.imshow(self.visit_matrix)
+            values, counts = np.unique(self.visit_matrix, return_counts=True)
+            obs = zip(values, counts)
+            lst = list(zip(*obs))
+            print(lst)
+            plt.show()
       
         # Plot the field
         field_polygon = Polygon(self.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
@@ -247,7 +266,7 @@ class Env: # Contains all the logic of the CPP Environment
 
 class Gym:
     def __init__(self):
-        self.env = Env(max_size=1000, num_points=8,vehicle_width=100, sub_steps=10)
+        self.env = Env(max_size=200, num_points=8,vehicle_width=100, sub_steps=10)
 
     def step(self, visualize=False):
         observation = self.env.matrix
