@@ -69,7 +69,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.cover_matrix = cv2.fillPoly(self.matrix, cover_polygon_vertices, 1)  
 
     def update_matrix(self):
-        self.matrix[(self.matrix != 99) & (self.cover_matrix == 1)] = 1
+        self.cover_matrix[(self.matrix != 99) & (self.cover_matrix == 1)] = 1
 
     def update_visit_counts(self):
         self.visit_matrix[(self.matrix != 99) & (self.cover_matrix == 1)] += 1  
@@ -164,10 +164,10 @@ class Env: # Contains all the logic of the CPP Environment
         spline_len = distance / self.sub_steps
         spline_angle = steering_angle / self.sub_steps
 
-        new_path = []
+        # new_path and new_polygon get used to update the cell visit count
+        new_polygon = []
         new_left_edge = []
         new_right_edge = []
-        self.cover_polygon = []
 
         for i in range(self.sub_steps):
             if i == 0:
@@ -175,18 +175,21 @@ class Env: # Contains all the logic of the CPP Environment
                 self.left_edge.append(initial_top)
                 self.right_edge.append(initial_bot)
 
+                new_left_edge.append(initial_top)
+                new_right_edge.append(initial_bot)
+
             else:
                 mid, top, bot, _, _ = self.next_point_in_path(spline_len, spline_angle)
+
             self.heading += spline_angle
 
             self.path.extend([mid])
             self.left_edge.extend([top])
             self.right_edge.extend([bot])
 
-        # new_path and new_polygon get used to update the cell visit count 
-            new_path.extend([mid])
             new_left_edge.extend([top])
             new_right_edge.extend([bot])
+
 
         self.cover_polygon = new_left_edge + list(reversed(new_right_edge))
         if self.cover_polygon[0] != self.cover_polygon[-1]:
@@ -222,10 +225,10 @@ class Env: # Contains all the logic of the CPP Environment
             #im = ax.imshow(masked_visits, cmap='viridis', interpolation='nearest')
             #plt.colorbar(im, ax=ax, label='Visit Count')
             plt.imshow(self.visit_matrix)
-            values, counts = np.unique(self.visit_matrix, return_counts=True)
-            obs = zip(values, counts)
-            lst = list(zip(*obs))
-            print(lst)
+            #values, counts = np.unique(self.visit_matrix, return_counts=True)
+            #obs = zip(values, counts)
+            #lst = list(zip(*obs))
+            #print(lst)
             plt.show()
       
         # Plot the field
@@ -266,7 +269,7 @@ class Env: # Contains all the logic of the CPP Environment
 
 class Gym:
     def __init__(self):
-        self.env = Env(max_size=200, num_points=8,vehicle_width=100, sub_steps=10)
+        self.env = Env(max_size=1000, num_points=8,vehicle_width=10, sub_steps=10)
 
     def step(self, visualize=False):
         observation = self.env.matrix
