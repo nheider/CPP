@@ -373,7 +373,7 @@ class FieldEnv(gym.Env):
     
     # Check for boundary violations or other termination conditions (not shown)
         if self.env.outside: 
-            terminated = 1
+            terminated = True
     
     # Visualization (if requested)
     #    if visualize:
