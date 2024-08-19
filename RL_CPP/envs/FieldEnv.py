@@ -233,7 +233,8 @@ class Env: # Contains all the logic of the CPP Environment
         current_counts = np.unique(self.matrix, return_counts=True)[1][1]
         print("current", current_counts)
         print("prev", prev_counts[1])
-        self.new_area = current_counts - prev_counts[1]
+        new_coverage_area = current_counts - prev_counts[1]
+        self.new_area = min(new_coverage_area, 0) # To do: see why sometimes prev_counts is bigger thn new counts
 
     def calculate_overlap_area(self): 
         changed_cells = np.sum(self.matrix != self.old_visits) - self.new_area 
@@ -360,7 +361,7 @@ class FieldEnv(gym.Env):
         
     # Reward components
         reward = (alpha * (self.env.new_area/norm)*1000) - (beta * self.env.overlap_area) - gamma
-        print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
+        #print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
     # If task is completed, give a large bonus
         if self.env.completed:
             reward += delta
