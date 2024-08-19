@@ -37,6 +37,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.completed = None 
         self.new_area = None 
         self.overlap_area = None 
+        self.inital_field_size = None 
         
         self.create_field()
         self.create_field_matrix()
@@ -67,7 +68,8 @@ class Env: # Contains all the logic of the CPP Environment
         matrix = np.full((self.max_size, self.max_size), 99, dtype=np.uint8) # Generate a Matrix the size of the biggest possible field 
         field_matrix = cv2.fillPoly(matrix, field_vertices, 0)               # Fill cells that are inside the field polygon with 0 
         self.matrix = field_matrix                                           # Matrix with 99 := Outside, 0 := Field 
-
+        self.inital_field_size = np.sum(field_matrix == 0)
+       
     def size(self):
         mask = self.matrix != 99
         count_of_elements = np.sum(mask)
@@ -79,6 +81,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.cover_matrix = cv2.fillPoly(temp_mat, cover_polygon_vertices, 1)  
 
     def update_matrix(self):
+        self.old_visits = self.matrix.copy()
         self.matrix[(self.matrix != 99) & (self.cover_matrix == 1)] = 1
 
     def update_visit_counts(self):
@@ -222,12 +225,14 @@ class Env: # Contains all the logic of the CPP Environment
         self.position = self.path[-1]
 
     def calculate_new_area(self):
-        prev_values, prev_counts = np.unique(self.old_visits, return_counts=True)
+        prev_counts = np.unique(self.old_visits, return_counts=True)[1]
 
         if len(prev_counts) == 2 and not (self.matrix == 1).any(): # Edge case for the first ever run 
             prev_counts = [prev_counts[0], 0, prev_counts[1]]
 
         current_counts = np.unique(self.matrix, return_counts=True)[1][1]
+        print("current", current_counts)
+        print("prev", prev_counts[1])
         self.new_area = current_counts - prev_counts[1]
 
     def calculate_overlap_area(self): 
@@ -238,7 +243,6 @@ class Env: # Contains all the logic of the CPP Environment
         self.completed = np.all((self.matrix == 99) | (self.matrix == 1))
 
     def step(self, distance, steering_angle, visualize=False): 
-        self.old_visits = self.matrix
         self.extend_path(distance=distance, steering_angle=steering_angle)
         self.create_cover_matrix()
         self.update_matrix()
@@ -249,23 +253,11 @@ class Env: # Contains all the logic of the CPP Environment
         self.calculate_overlap_area()
         
         if visualize: 
-            self.visualize(show_visits=True)
+            self.visualize()
 
-    def visualize(self, show_visits=False):
+    def visualize(self):
         fig, ax = plt.subplots(figsize=(10, 10))
     
-       # if show_visits:
-            # Create a masked array for visit counts
-        #    masked_visits = np.ma.masked_where(self.matrix == 99, self.visit_matrix)
-        #    im = ax.imshow(masked_visits, cmap='viridis', interpolation='nearest')
-        #    plt.colorbar(im, ax=ax, label='Visit Count')
-            #plt.imshow(self.visit_matrix)
-            #values, counts = np.unique(self.visit_matrix, return_counts=True)
-            #obs = zip(values, counts)
-            #lst = list(zip(*obs))
-            #print(lst)
-        #    plt.show()
-      
         # Plot the field
         field_polygon = Polygon(self.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
         ax.add_patch(field_polygon)
@@ -350,7 +342,7 @@ class FieldEnv(gym.Env):
         #print("steer", steering_angle, "dist", distance, "done", finished, "heading", self.env.heading)
         
         # Example: update state based on action
-        self.env.step(distance = distance, steering_angle=steering_angle, visualize=False)
+        self.env.step(distance = distance, steering_angle=steering_angle, visualize=True)
 
         observation = np.concatenate([
             self.env.matrix.flatten(),
@@ -359,14 +351,16 @@ class FieldEnv(gym.Env):
         ])
     
         # Reward calculation
-        alpha = 10  # Reward for new area covered
+        alpha = 50  # Reward for new area covered
         beta = 5    # Penalty for overlap area
         gamma = 0.1 # Small time step penalty
         delta = 1000 # Large reward for completing the task
-    
+        norm = self.env.inital_field_size # larger fields should get more reward by default 
+        # Maybe overlap and gamma should also be normed to field size 
+        
     # Reward components
-        reward = (alpha * self.env.new_area) - (beta * self.env.overlap_area) - gamma
-    
+        reward = (alpha * (self.env.new_area/norm)*1000) - (beta * self.env.overlap_area) - gamma
+        print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
     # If task is completed, give a large bonus
         if self.env.completed:
             reward += delta

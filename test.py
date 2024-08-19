@@ -43,7 +43,7 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = True
+    track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "Field_CPP"
     """the wandb's project name"""
@@ -192,9 +192,8 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
-
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "mps" if torch.backends.mps.is_available() else "cpu")
+   
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
@@ -220,7 +219,8 @@ if __name__ == "__main__":
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
-        print(iteration, "of", args.num_iterations, "iterations")
+        print(f"{iteration} of {args.num_iterations} iterations")
+        
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (iteration - 1.0) / args.num_iterations
@@ -242,8 +242,8 @@ if __name__ == "__main__":
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())
             next_done = np.logical_or(terminations, truncations)
-            rewards[step] = torch.tensor(reward).to(device).view(-1)
-            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
+            rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
+            next_obs, next_done = torch.tensor(next_obs, dtype=torch.float32).to(device), torch.tensor(next_done, dtype=torch.float32).to(device)
 
             if "final_info" in infos:
                 for info in infos["final_info"]:
@@ -274,9 +274,11 @@ if __name__ == "__main__":
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
+        print(f"Mean Batch Return: {torch.mean(b_returns)}")
         b_values = values.reshape(-1)
 
         # Optimizing the policy and value network
+        print("Optimizing the policy and value network...")
         b_inds = np.arange(args.batch_size)
         clipfracs = []
         for epoch in range(args.update_epochs):
@@ -345,6 +347,17 @@ if __name__ == "__main__":
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         print("SPS:", int(global_step / (time.time() - start_time))) # Steps per second 
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        writer.add_scalar("losses/mean_batch_return", torch.mean(b_returns))
+        
+        '''
+        # TO DO: ADD THIS AS DEBUG 
+        # Test Agent once every Iteration  
+        test_env = gym.make("FieldEnv-v0")
+        observation, info = test_env.reset()
+        while not terminated or truncated: 
+            action = test_env.action_space.sample()  # this is where you would insert your policy
+            observation, reward, terminated, truncated, info = env.step(action)
+          '''
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
