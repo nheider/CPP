@@ -231,8 +231,6 @@ class Env: # Contains all the logic of the CPP Environment
             prev_counts = [prev_counts[0], 0, prev_counts[1]]
 
         current_counts = np.unique(self.matrix, return_counts=True)[1][1]
-        print("current", current_counts)
-        print("prev", prev_counts[1])
         new_coverage_area = current_counts - prev_counts[1]
         self.new_area = min(new_coverage_area, 0) # To do: see why sometimes prev_counts is bigger thn new counts
 
