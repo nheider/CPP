@@ -366,10 +366,6 @@ class FieldEnv(gym.Env):
     
     # Reward components
         reward = (alpha * self.env.new_area) - (beta * self.env.overlap_area) - gamma
-
-        print(self.env.new_area)
-        print(self.env.overlap_area)
-        print(reward)
     
     # If task is completed, give a large bonus
         if self.env.completed:
