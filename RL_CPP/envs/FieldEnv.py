@@ -347,7 +347,7 @@ class FieldEnv(gym.Env):
         #print("steer", steering_angle, "dist", distance, "done", finished, "heading", self.env.heading)
         
         # Example: update state based on action
-        self.env.step(distance = distance, steering_angle=steering_angle, visualize=True)
+        self.env.step(distance = distance, steering_angle=steering_angle, visualize=False)
 
         observation = np.concatenate([
             self.env.matrix.flatten(),
@@ -382,7 +382,7 @@ class FieldEnv(gym.Env):
     #        self.visualize(show_visits=True)
     
     # Return the reward, the current state, and other information typically needed by RL algorithms
-        print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
+        #print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
 
         return observation, reward, terminated, truncated, {}   # Simplified return statement
 
