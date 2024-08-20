@@ -341,11 +341,8 @@ class FieldEnv(gym.Env):
         
         # Implement environment dynamics
         steering_angle = action[0] *  60 
-        print("steering:", steering_angle)
         distance = action[1] * 100
-        #finished = action[2] > 0.5  # Convert to boolean
-        #print("steer", steering_angle, "dist", distance, "done", finished, "heading", self.env.heading)
-        
+       
         # Example: update state based on action
         self.env.step(distance = distance, steering_angle=steering_angle, visualize=False)
 
