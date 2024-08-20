@@ -71,7 +71,7 @@ class Args:
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    gamma: float = 0.99
+    gamma: float = 0.99 # default 99
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
@@ -142,23 +142,26 @@ class Agent(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.1),
-            ScaledTanh(envs.single_action_space)  # Use our custom ScaledTanh
+            layer_init(nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.01),
+            nn.Tanh(),
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
 
     def get_value(self, x):
         return self.critic(x)
-    
 
     def get_action_and_value(self, x, action=None):
         action_mean = self.actor_mean(x)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
+        distance_dist = Normal(action_mean[0,1], action_std[0,1])
 
         if action is None:
-            action = probs.sample()
+            unscaled_actions = probs.sample()
+            action1 = torch.tanh(unscaled_actions[0,0]) # normalized actions steering action [-1,1]
+            action2 = distance_dist.cdf(unscaled_actions[0,1])  # normalized distance action [0, 1]
+            action = torch.stack([action1, action2]).unsqueeze(0)
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
 

@@ -232,7 +232,7 @@ class Env: # Contains all the logic of the CPP Environment
 
         current_counts = np.unique(self.matrix, return_counts=True)[1][1]
         new_coverage_area = current_counts - prev_counts[1]
-        self.new_area = min(new_coverage_area, 0) # To do: see why sometimes prev_counts is bigger thn new counts
+        self.new_area = max(new_coverage_area, 0) # To do: see why sometimes prev_counts is bigger thn new counts
 
     def calculate_overlap_area(self): 
         changed_cells = np.sum(self.matrix != self.old_visits) - self.new_area 
@@ -255,22 +255,23 @@ class Env: # Contains all the logic of the CPP Environment
             self.visualize()
 
     def visualize(self):
-        fig, ax = plt.subplots(figsize=(10, 10))
-    
+        plt.figure(figsize=(6, 6))  # Smaller figure size
+        ax = plt.gca()
+
         # Plot the field
         field_polygon = Polygon(self.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
         ax.add_patch(field_polygon)
-    
-     # Plot the path if provided
+
+        # Plot the path if provided
         if self.path:
             path_x, path_y = zip(*self.path)
             ax.plot(path_x, path_y, 'r-', linewidth=2, label='Path')
-    
+
         # Plot the path polygon if provided
         if self.path_polygon:
             path_poly_patch = Polygon(self.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
             ax.add_patch(path_poly_patch)
-    
+
         # Set axis limits
         ax.set_xlim(self.bounding_box[0], self.bounding_box[1])
         ax.set_ylim(self.bounding_box[2], self.bounding_box[3])
@@ -280,19 +281,23 @@ class Env: # Contains all the logic of the CPP Environment
         ax.spines["right"].set_visible(False)
         ax.spines["left"].set_visible(False)
         ax.spines["bottom"].set_visible(False)
-    
+
         # Set labels and title
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
-        #ax.set_title('Field Visualization')
-    
+
         # Add legend
         ax.legend()
-    
-        # Show the plot
-        plt.draw()
-        plt.pause(0.1)  # Pause for 1 second
-        plt.close(fig)
+
+        # Set a custom window title (allows minimizing)
+        plt.gcf().canvas.manager.set_window_title('Field Visualization')
+
+        # Show the plot without blocking
+        plt.show(block=False)
+        plt.pause(0.1)  # Pause for a short time to allow the plot to render
+
+        # Instead of closing the figure, we'll clear it for the next update
+        plt.clf()
 
 # Custom environment
 class FieldEnv(gym.Env):
@@ -301,8 +306,8 @@ class FieldEnv(gym.Env):
         
         # Action space: steering angle and distance
         self.action_space = spaces.Box(
-            low=np.array([-60.0, 10.0]),
-            high=np.array([60.0, 100.0]),
+            low=np.array([-1, -1]),
+            high=np.array([1, 1]),
             shape=(2,),
             dtype=np.float32
         )
@@ -328,15 +333,16 @@ class FieldEnv(gym.Env):
         info = {} # To do add some info 
 
         return (observation, info)
-    
-    
+
+
     def step(self, action):
         terminated = False
         truncated = False
         
         # Implement environment dynamics
-        steering_angle = np.clip(action[0], -60, 60) 
-        distance = np.clip(action[1], 10, 100) # To do: fix this 
+        steering_angle = action[0] *  60 
+        print("steering:", steering_angle)
+        distance = action[1] * 100
         #finished = action[2] > 0.5  # Convert to boolean
         #print("steer", steering_angle, "dist", distance, "done", finished, "heading", self.env.heading)
         
@@ -351,21 +357,24 @@ class FieldEnv(gym.Env):
     
         # Reward calculation
         alpha = 50  # Reward for new area covered
-        beta = 5    # Penalty for overlap area
-        gamma = 0.1 # Small time step penalty
+        beta = 0   # Penalty for overlap area !!! Overlap is buggy right now 
+        #gamma = 0.1 # Small time step penalty
         delta = 1000 # Large reward for completing the task
+        psi = 100 # Large penalty for leaving the field
         norm = self.env.inital_field_size # larger fields should get more reward by default 
         # Maybe overlap and gamma should also be normed to field size 
-        
+        #print("overlap: ", self.env.overlap_area)
+
     # Reward components
-        reward = (alpha * (self.env.new_area/norm)*1000) - (beta * self.env.overlap_area) - gamma
-        #print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
+        #print("new area: ", self.env.new_area)
+        reward = (alpha * (self.env.new_area/norm)*1000) - (beta * self.env.overlap_area) #- gamma
     # If task is completed, give a large bonus
         if self.env.completed:
             reward += delta
     
     # Check for boundary violations or other termination conditions (not shown)
         if self.env.outside: 
+            reward -= psi
             terminated = True
     
     # Visualization (if requested)
@@ -373,6 +382,8 @@ class FieldEnv(gym.Env):
     #        self.visualize(show_visits=True)
     
     # Return the reward, the current state, and other information typically needed by RL algorithms
+        print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
+
         return observation, reward, terminated, truncated, {}   # Simplified return statement
 
 
