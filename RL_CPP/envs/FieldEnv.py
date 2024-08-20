@@ -18,6 +18,7 @@ from matplotlib.patches import Polygon
 from matplotlib.animation import FuncAnimation
 import gymnasium as gym 
 from gymnasium import spaces, envs
+import gc
 
 
 class Env: # Contains all the logic of the CPP Environment  
@@ -253,10 +254,14 @@ class Env: # Contains all the logic of the CPP Environment
         
         if visualize: 
             self.visualize()
+    
+    
 
-    def visualize(self):
-        plt.figure(figsize=(6, 6))  # Smaller figure size
-        ax = plt.gca()
+    def visualize(self, visualize=False):
+        plt.close()  # Close the current figure to free up memory
+
+        fig = plt.figure(figsize=(8, 8))  # Larger figure size
+        ax = fig.gca()
 
         # Plot the field
         field_polygon = Polygon(self.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
@@ -277,10 +282,9 @@ class Env: # Contains all the logic of the CPP Environment
         ax.set_ylim(self.bounding_box[2], self.bounding_box[3])
         ax.set_aspect('equal', 'box')
 
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_visible(False)
-        ax.spines["bottom"].set_visible(False)
+        # Remove spines for a cleaner look
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
         # Set labels and title
         ax.set_xlabel('X')
@@ -289,15 +293,20 @@ class Env: # Contains all the logic of the CPP Environment
         # Add legend
         ax.legend()
 
-        # Set a custom window title (allows minimizing)
-        plt.gcf().canvas.manager.set_window_title('Field Visualization')
-
-        # Show the plot without blocking
+        # Display the plot
         plt.show(block=False)
-        plt.pause(0.1)  # Pause for a short time to allow the plot to render
 
-        # Instead of closing the figure, we'll clear it for the next update
-        plt.clf()
+        # Pause to allow the plot to render
+        plt.pause(1)
+
+        # Close the figure to free memory
+        plt.close(fig)
+
+        # Manually trigger garbage collection to clean up memory
+        gc.collect()
+
+
+
 
 # Custom environment
 class FieldEnv(gym.Env):

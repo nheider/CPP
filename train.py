@@ -116,17 +116,6 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-class ScaledTanh(nn.Module):
-    def __init__(self, action_space):
-        super().__init__()
-        self.register_buffer('action_low', torch.FloatTensor(action_space.low))
-        self.register_buffer('action_high', torch.FloatTensor(action_space.high))
-
-    def forward(self, x):
-        tanh_out = torch.tanh(x)
-        return 0.5 * (self.action_high - self.action_low) * (tanh_out + 1) + self.action_low
-
-
 class Agent(nn.Module):
     def __init__(self, envs):
         super().__init__()
