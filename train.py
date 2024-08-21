@@ -53,6 +53,10 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
+    save_checkpoints: bool = True
+    """Wheter to save the model periodically"""
+    save_checkpoints_frequency: int = 25
+    """After how many iterations should a model checkpoint be saved"""
     upload_model: bool = False
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
@@ -350,6 +354,11 @@ if __name__ == "__main__":
             action = test_env.action_space.sample()  # this is where you would insert your policy
             observation, reward, terminated, truncated, info = env.step(action)
           '''
+
+        if args.save_checkpoints and iteration % args.save_checkpoints_frequency == 0: 
+            model_path = f"runs/{run_name}/checkpoints/{args.exp_name}_{iteration}.cleanrl_model"
+            torch.save(agent.state_dict(), model_path)
+            print(f"Checkpoint at iteration {iteration} saved to {model_path}")
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
