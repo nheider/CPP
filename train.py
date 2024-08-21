@@ -55,7 +55,7 @@ class Args:
     """whether to save model into the `runs/{run_name}` folder"""
     save_checkpoints: bool = True
     """Wheter to save the model periodically"""
-    save_checkpoints_frequency: int = 25
+    save_checkpoints_frequency: int = 5
     """After how many iterations should a model checkpoint be saved"""
     upload_model: bool = False
     """whether to upload the saved model to huggingface"""
@@ -355,8 +355,10 @@ if __name__ == "__main__":
             observation, reward, terminated, truncated, info = env.step(action)
           '''
 
-        if args.save_checkpoints and iteration % args.save_checkpoints_frequency == 0: 
-            model_path = f"runs/{run_name}/checkpoints/{args.exp_name}_{iteration}.cleanrl_model"
+        if args.save_checkpoints and iteration % args.save_checkpoints_frequency == 0:
+            checkpoints_dir = f"runs/{run_name}/checkpoints"
+            os.makedirs(checkpoints_dir, exist_ok=True)
+            model_path = f"{checkpoints_dir}/{args.exp_name}_{iteration}.cleanrl_model"
             torch.save(agent.state_dict(), model_path)
             print(f"Checkpoint at iteration {iteration} saved to {model_path}")
 
