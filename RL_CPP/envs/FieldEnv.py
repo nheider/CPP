@@ -19,6 +19,8 @@ from matplotlib.animation import FuncAnimation
 import gymnasium as gym 
 from gymnasium import spaces, envs
 import gc
+import pygame
+import pygame.gfxdraw
 
 
 class Env: # Contains all the logic of the CPP Environment  
@@ -44,6 +46,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.create_field_matrix()
         self.random_point_on_polygon_perimeter()
 
+
         self.visit_matrix = np.zeros_like(self.matrix, dtype=np.int32) # Records the number of times each cell gets visited, used for visualization        
 
         # Path Variables 
@@ -52,6 +55,7 @@ class Env: # Contains all the logic of the CPP Environment
         self.path = [self.start_point]  
         self.left_edge = []
         self.right_edge = []
+       
 
     def create_field(self):
         points = np.random.randint(0, self.max_size, size=(self.num_points, 2))
@@ -253,60 +257,48 @@ class Env: # Contains all the logic of the CPP Environment
         self.calculate_overlap_area()
         
         if visualize: 
-            self.visualize()
+            self.render()
     
-    
-
-    def visualize(self, visualize=False):
-        plt.close()  # Close the current figure to free up memory
-
+    def render(self):
+        # Matplotlib visualization
         fig = plt.figure(figsize=(8, 8))  # Larger figure size
         ax = fig.gca()
-
+        
         # Plot the field
         field_polygon = Polygon(self.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
         ax.add_patch(field_polygon)
-
+        
         # Plot the path if provided
         if self.path:
             path_x, path_y = zip(*self.path)
             ax.plot(path_x, path_y, 'r-', linewidth=2, label='Path')
-
+        
         # Plot the path polygon if provided
         if self.path_polygon:
             path_poly_patch = Polygon(self.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
             ax.add_patch(path_poly_patch)
-
+        
         # Set axis limits
         ax.set_xlim(self.bounding_box[0], self.bounding_box[1])
         ax.set_ylim(self.bounding_box[2], self.bounding_box[3])
         ax.set_aspect('equal', 'box')
-
+        
         # Remove spines for a cleaner look
         for spine in ax.spines.values():
             spine.set_visible(False)
-
+        
         # Set labels and title
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
-
-        # Add legend
         ax.legend()
+        
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        plt.pause(0.1)
 
-        # Display the plot
-        plt.show(block=False)
-
-        # Pause to allow the plot to render
-        plt.pause(1)
-
-        # Close the figure to free memory
-        plt.close(fig)
-
-        # Manually trigger garbage collection to clean up memory
-        gc.collect()
-
-
-
+# Usage
+# Assuming 'self' is an instance of a class containing the necessary attributes
+# self.visualize_and_render()
 
 # Custom environment
 class FieldEnv(gym.Env):
@@ -344,16 +336,18 @@ class FieldEnv(gym.Env):
         return (observation, info)
 
 
-    def step(self, action):
+    def step(self, action,visualize=False):
         terminated = False
         truncated = False
+        visualize = False
         
         # Implement environment dynamics
         steering_angle = action[0] *  60 
         distance = action[1] * 100
        
         # Example: update state based on action
-        self.env.step(distance = distance, steering_angle=steering_angle, visualize=False)
+     
+        self.env.step(distance = distance, steering_angle=steering_angle, visualize=visualize)
 
         observation = np.concatenate([
             self.env.matrix.flatten(),
@@ -389,7 +383,7 @@ class FieldEnv(gym.Env):
     
     # Return the reward, the current state, and other information typically needed by RL algorithms
         #print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
+        
 
         return observation, reward, terminated, truncated, {}   # Simplified return statement
-
 
