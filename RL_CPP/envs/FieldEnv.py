@@ -303,6 +303,8 @@ class Env: # Contains all the logic of the CPP Environment
 class FieldEnv(gym.Env):
     def __init__(self):
         super(FieldEnv, self).__init__()
+
+        self.visualize = False
         
         # Action space: steering angle and distance
         self.action_space = spaces.Box(
@@ -335,7 +337,7 @@ class FieldEnv(gym.Env):
         return (observation, info)
 
 
-    def step(self, action,visualize=False):
+    def step(self, action):
         terminated = False
         truncated = False
         visualize = False
@@ -346,7 +348,7 @@ class FieldEnv(gym.Env):
        
         # Example: update state based on action
      
-        self.env.step(distance = distance, steering_angle=steering_angle, visualize=visualize)
+        self.env.step(distance = distance, steering_angle=steering_angle, visualize=self.visualize)
 
         observation = np.concatenate([
             self.env.matrix.flatten(),
