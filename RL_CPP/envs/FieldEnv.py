@@ -19,8 +19,7 @@ from matplotlib.animation import FuncAnimation
 import gymnasium as gym 
 from gymnasium import spaces, envs
 import gc
-import pygame
-import pygame.gfxdraw
+
 
 
 class Env: # Contains all the logic of the CPP Environment  
