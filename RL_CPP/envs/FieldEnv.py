@@ -8,18 +8,12 @@ TO DO:
 '''
 
 import numpy as np 
-import matplotlib.pyplot as plt
-plt.ion() 
 import cv2 
 import math 
 import pyclipper
 from scipy.spatial import ConvexHull
-from matplotlib.patches import Polygon
-from matplotlib.animation import FuncAnimation
 import gymnasium as gym 
 from gymnasium import spaces, envs
-import gc
-
 
 
 class Env: # Contains all the logic of the CPP Environment  
@@ -40,11 +34,12 @@ class Env: # Contains all the logic of the CPP Environment
         self.new_area = None 
         self.overlap_area = None 
         self.inital_field_size = None 
+        self.polygon = None                # Stores the field 
+        self.path_polygon = None
         
         self.create_field()
         self.create_field_matrix()
         self.random_point_on_polygon_perimeter()
-
 
         self.visit_matrix = np.zeros_like(self.matrix, dtype=np.int32) # Records the number of times each cell gets visited, used for visualization        
 
@@ -258,53 +253,11 @@ class Env: # Contains all the logic of the CPP Environment
         if visualize: 
             self.render()
     
-    def render(self):
-        # Matplotlib visualization
-        fig = plt.figure(figsize=(8, 8))  # Larger figure size
-        ax = fig.gca()
-        
-        # Plot the field
-        field_polygon = Polygon(self.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
-        ax.add_patch(field_polygon)
-        
-        # Plot the path if provided
-        if self.path:
-            path_x, path_y = zip(*self.path)
-            ax.plot(path_x, path_y, 'r-', linewidth=2, label='Path')
-        
-        # Plot the path polygon if provided
-        if self.path_polygon:
-            path_poly_patch = Polygon(self.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
-            ax.add_patch(path_poly_patch)
-        
-        # Set axis limits
-        ax.set_xlim(self.bounding_box[0], self.bounding_box[1])
-        ax.set_ylim(self.bounding_box[2], self.bounding_box[3])
-        ax.set_aspect('equal', 'box')
-        
-        # Remove spines for a cleaner look
-        for spine in ax.spines.values():
-            spine.set_visible(False)
-        
-        # Set labels and title
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.legend()
-        
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        plt.pause(0.1)
-
-# Usage
-# Assuming 'self' is an instance of a class containing the necessary attributes
-# self.visualize_and_render()
 
 # Custom environment
 class FieldEnv(gym.Env):
     def __init__(self):
         super(FieldEnv, self).__init__()
-
-        self.visualize = False
         
         # Action space: steering angle and distance
         self.action_space = spaces.Box(
@@ -324,12 +277,12 @@ class FieldEnv(gym.Env):
     
     def reset(self, seed=None, options=None):
         # Reset the environment and return initial observation
-        self.env = Env(max_size=1000, num_points=8, vehicle_width=10, sub_steps=10)
+        self.playground = Env(max_size=1000, num_points=8, vehicle_width=10, sub_steps=10)
 
         observation = np.concatenate([
-            self.env.matrix.flatten(),
-            np.array(self.env.path[-1], dtype=np.float32),
-            np.array([self.env.heading], dtype=np.float32)
+            self.playground.matrix.flatten(),
+            np.array(self.playground.path[-1], dtype=np.float32),
+            np.array([self.playground.heading], dtype=np.float32)
         ])
 
         info = {} # To do add some info 
@@ -348,12 +301,12 @@ class FieldEnv(gym.Env):
        
         # Example: update state based on action
      
-        self.env.step(distance = distance, steering_angle=steering_angle, visualize=self.visualize)
+        self.playground.step(distance = distance, steering_angle=steering_angle)
 
         observation = np.concatenate([
-            self.env.matrix.flatten(),
-            np.array(self.env.path[-1], dtype=np.float32),
-            np.array([self.env.heading], dtype=np.float32)
+            self.playground.matrix.flatten(),
+            np.array(self.playground.path[-1], dtype=np.float32),
+            np.array([self.playground.heading], dtype=np.float32)
         ])
     
         # Reward calculation
@@ -362,19 +315,19 @@ class FieldEnv(gym.Env):
         #gamma = 0.1 # Small time step penalty
         delta = 1000 # Large reward for completing the task
         psi = 100 # Large penalty for leaving the field
-        norm = self.env.inital_field_size # larger fields should get more reward by default 
+        norm = self.playground.inital_field_size # larger fields should get more reward by default 
         # Maybe overlap and gamma should also be normed to field size 
         #print("overlap: ", self.env.overlap_area)
 
     # Reward components
         #print("new area: ", self.env.new_area)
-        reward = (alpha * (self.env.new_area/norm)*1000) - (beta * self.env.overlap_area) #- gamma
+        reward = (alpha * (self.playground.new_area/norm)*1000) - (beta * self.playground.overlap_area) #- gamma
     # If task is completed, give a large bonus
-        if self.env.completed:
+        if self.playground.completed:
             reward += delta
     
     # Check for boundary violations or other termination conditions (not shown)
-        if self.env.outside: 
+        if self.playground.outside: 
             reward -= psi
             terminated = True
     

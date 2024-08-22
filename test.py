@@ -4,7 +4,7 @@ import torch
 import gymnasium as gym
 from gymnasium import vector
 from train import Agent
-
+from RL_CPP.wrappers import VisualizeWrapper
 
 
 def evaluate_agent(checkpoint_path, env_id, num_episodes=10, device="cpu"):
@@ -24,8 +24,8 @@ def evaluate_agent(checkpoint_path, env_id, num_episodes=10, device="cpu"):
 
     # Load the environment
     env = gym.make(env_id)
-    env.visualize = True
-
+    env = VisualizeWrapper(env)
+    
     # The agent expects a vector of environments, so we make a vector of 1 env 
     envs = vector.VectorEnv(num_envs=1, observation_space=env.observation_space, action_space=env.action_space)
     
@@ -53,7 +53,7 @@ def evaluate_agent(checkpoint_path, env_id, num_episodes=10, device="cpu"):
 
     return episodic_returns
 
-checkpoint_path = "runs/FieldEnv-v0__train__1__1724228970/checkpoints/train_5.cleanrl_model"
+checkpoint_path = "runs/FieldEnv-v0__train__1__1724252964/checkpoints/train_1.cleanrl_model"
 env_id = "FieldEnv-v0"
 episode_returns = evaluate_agent(checkpoint_path, env_id, num_episodes=10)
-print(f"Average episode return: {sum(episode_returns) / len(episode_returns)}")
+print(f"Test episode return: {sum(episode_returns) / len(episode_returns)}")

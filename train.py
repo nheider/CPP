@@ -43,7 +43,7 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = True
+    track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "Field_CPP"
     """the wandb's project name"""
@@ -55,7 +55,7 @@ class Args:
     """whether to save model into the `runs/{run_name}` folder"""
     save_checkpoints: bool = True
     """Wheter to save the model periodically"""
-    save_checkpoints_frequency: int = 5
+    save_checkpoints_frequency: int = 1
     """After how many iterations should a model checkpoint be saved"""
     upload_model: bool = False
     """whether to upload the saved model to huggingface"""
