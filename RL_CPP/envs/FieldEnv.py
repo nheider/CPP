@@ -198,7 +198,7 @@ class Env: # Contains all the logic of the CPP Environment
             else:
                 mid, top, bot, _, _ = self.next_point_in_path(spline_len, spline_angle)
 
-            self.heading += spline_angle
+            self.heading = (self.heading + spline_angle) % 360
 
             self.path.extend([mid])
             self.left_edge.extend([top])
@@ -337,7 +337,6 @@ class FieldEnv(gym.Env):
     
     # Return the reward, the current state, and other information typically needed by RL algorithms
         #print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
-        
 
         return observation, reward, terminated, truncated, {}   # Simplified return statement
 

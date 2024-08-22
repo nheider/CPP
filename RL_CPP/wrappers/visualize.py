@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.animation import FuncAnimation
 from matplotlib.lines import Line2D
+import gc
 
 class VisualizeWrapper(Wrapper): 
     def __init__(self, env):
@@ -20,7 +21,7 @@ class VisualizeWrapper(Wrapper):
         obs = self.env.reset()
         self.fig = plt.figure(figsize=(8, 8))  # Larger figure size
         self.ax = self.fig.gca()
-        plt.ion()  # Turn on interactive mode
+        #plt.ion()  # Turn on interactive mode
         field_polygon = Polygon(self.env.unwrapped.playground.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
         self.ax.add_patch(field_polygon)
         self.ax.set_xlim(self.env.unwrapped.playground.bounding_box[0], self.env.unwrapped.playground.bounding_box[1])
@@ -61,6 +62,11 @@ class VisualizeWrapper(Wrapper):
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         plt.pause(0.1)
+    
+    def close(self):
+        if self.fig:
+            plt.close(self.fig)
+        gc.collect()
 
         
     

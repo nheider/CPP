@@ -32,6 +32,8 @@ import tyro
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
+from RL_CPP.wrappers import VisualizeWrapper
+
 
 @dataclass
 class Args:
@@ -61,6 +63,10 @@ class Args:
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
+    visualize: bool = True 
+    """wether to visualize the agent periodically"""
+    visualize_frequency = 50
+    """How often to visualize the agent (i.e.: every n steps)"""
 
     # Algorithm specific arguments
     env_id: str = "FieldEnv-v0"
@@ -157,7 +163,6 @@ class Agent(nn.Module):
             action = torch.stack([action1, action2]).unsqueeze(0)
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
-
 if __name__ == "__main__":
     args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -248,6 +253,29 @@ if __name__ == "__main__":
                         writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                         writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
 
+            if args.visualize and args.visualize_frequency % (step+1) == 0:
+                vis_env_vector = VisualizeWrapper(gym.vector.SyncVectorEnv([lambda: gym.make(args.env_id) for i in range(args.num_envs)]))
+
+                agent.eval()
+                # Evaluate the agent
+                episodic_returns = []
+                
+                observation, _ = vis_env_vector.reset()
+                done = False
+                total_reward = 0
+
+                with torch.no_grad(): 
+                    while not done:
+                        action, _, _, _ = agent.get_action_and_value(observation)
+                        observation, reward, terminated, truncated, info = vis_env_vector.step(action.cpu().numpy())
+                        done = np.logical_or(terminations, truncations)
+                        total_reward += torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
+                        episodic_returns.append(total_reward)
+                vis_env.close()
+                print(f"Returns of the test environment: {sum(episodic_returns) / len(episodic_returns)}")
+                agent.train()
+                
+
         # bootstrap value if not done
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
@@ -263,6 +291,7 @@ if __name__ == "__main__":
                 delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
                 advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
             returns = advantages + values
+
 
         # flatten the batch
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
@@ -344,16 +373,6 @@ if __name__ == "__main__":
         print("SPS:", int(global_step / (time.time() - start_time))) # Steps per second 
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
         writer.add_scalar("losses/mean_batch_return", torch.mean(b_returns))
-        
-        '''
-        # TO DO: ADD THIS AS DEBUG 
-        # Test Agent once every Iteration  
-        test_env = gym.make("FieldEnv-v0")
-        observation, info = test_env.reset()
-        while not terminated or truncated: 
-            action = test_env.action_space.sample()  # this is where you would insert your policy
-            observation, reward, terminated, truncated, info = env.step(action)
-          '''
 
         if args.save_checkpoints and iteration % args.save_checkpoints_frequency == 0:
             checkpoints_dir = f"runs/{run_name}/checkpoints"
