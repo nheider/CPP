@@ -22,10 +22,10 @@ class VisualizeWrapper(Wrapper):
         self.fig = plt.figure(figsize=(8, 8))  # Larger figure size
         self.ax = self.fig.gca()
         #plt.ion()  # Turn on interactive mode
-        field_polygon = Polygon(self.env.unwrapped.playground.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
+        field_polygon = Polygon(self.env.unwrapped.polygon, facecolor='lightgreen', edgecolor='green', alpha=0.5)
         self.ax.add_patch(field_polygon)
-        self.ax.set_xlim(self.env.unwrapped.playground.bounding_box[0], self.env.unwrapped.playground.bounding_box[1])
-        self.ax.set_ylim(self.env.unwrapped.playground.bounding_box[2], self.env.unwrapped.playground.bounding_box[3])
+        self.ax.set_xlim(self.env.unwrapped.bounding_box[0], self.env.unwrapped.bounding_box[1])
+        self.ax.set_ylim(self.env.unwrapped.bounding_box[2], self.env.unwrapped.bounding_box[3])
         self.ax.set_aspect('equal', 'box')
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
@@ -49,14 +49,14 @@ class VisualizeWrapper(Wrapper):
         if self.path_polygon:
             self.path_polygon.remove()
         # Plot the path if provided
-        if self.env.unwrapped.playground.path:
-            path_x, path_y = zip(*self.env.unwrapped.playground.path)
+        if self.env.unwrapped.path:
+            path_x, path_y = zip(*self.env.unwrapped.path)
             self.path_line = Line2D(path_x, path_y, color='r', linewidth=2, label='Path')
             self.ax.add_line(self.path_line)
 
         # Plot the path polygon if provided
-        if self.env.unwrapped.playground.path_polygon:
-            self.path_polygon = Polygon(self.env.unwrapped.playground.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
+        if self.env.unwrapped.path_polygon:
+            self.path_polygon = Polygon(self.env.unwrapped.path_polygon, facecolor='red', edgecolor='red', alpha=0.3)
             self.ax.add_patch(self.path_polygon)
         
         self.fig.canvas.draw()

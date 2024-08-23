@@ -55,7 +55,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
-    save_checkpoints: bool = True
+    save_checkpoints: bool = False
     """Wheter to save the model periodically"""
     save_checkpoints_frequency: int = 1
     """After how many iterations should a model checkpoint be saved"""
@@ -63,7 +63,7 @@ class Args:
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
-    visualize: bool = True 
+    visualize: bool = False 
     """wether to visualize the agent periodically"""
     visualize_frequency = 50
     """How often to visualize the agent (i.e.: every n steps)"""
@@ -101,7 +101,7 @@ class Args:
     """coefficient of the value function"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
-    target_kl: float = None
+    target_kl: tyro.conf.Suppress[float] = None
     """the target KL divergence threshold"""
 
     # to be filled in runtime
@@ -117,9 +117,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
     def thunk():
         env = gym.make(env_id)
         return env
-
     return thunk
-
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -254,25 +252,24 @@ if __name__ == "__main__":
                         writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
 
             if args.visualize and args.visualize_frequency % (step+1) == 0:
-                vis_env_vector = VisualizeWrapper(gym.vector.SyncVectorEnv([lambda: gym.make(args.env_id) for i in range(args.num_envs)]))
-
+                vis_env = VisualizeWrapper(gym.make(args.env_id))
                 agent.eval()
-                # Evaluate the agent
+
                 episodic_returns = []
-                
-                observation, _ = vis_env_vector.reset()
+
+                observation, _ = vis_env.reset()
                 done = False
                 total_reward = 0
 
                 with torch.no_grad(): 
                     while not done:
-                        action, _, _, _ = agent.get_action_and_value(observation)
-                        observation, reward, terminated, truncated, info = vis_env_vector.step(action.cpu().numpy())
+                        action, _, _, _ = agent.get_action_and_value(torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(device))
+                        observation, reward, terminated, truncated, info = vis_env.step(action.squeeze(0).cpu().numpy())
                         done = np.logical_or(terminations, truncations)
-                        total_reward += torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
+                        total_reward += reward
                         episodic_returns.append(total_reward)
                 vis_env.close()
-                print(f"Returns of the test environment: {sum(episodic_returns) / len(episodic_returns)}")
+                print(f"Return of the test environment: {sum(episodic_returns) / len(episodic_returns)}")
                 agent.train()
                 
 

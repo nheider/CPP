@@ -45,6 +45,7 @@ def evaluate_agent(checkpoint_path, env_id, num_episodes=10, device="cpu"):
             while not done:
                 action, _, _, _ = agent.get_action_and_value(torch.Tensor(observation).unsqueeze(0).to(device))
                 observation, reward, terminated, truncated, info = env.step(action.cpu().numpy()[0])
+                print("TEST ENV:", terminated, truncated)
                 total_reward += reward
                 done = terminated or truncated
 
