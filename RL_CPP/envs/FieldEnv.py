@@ -8,12 +8,22 @@ TO DO:
 '''
 
 import numpy as np 
+import matplotlib.pyplot as plt 
+from matplotlib.patches import Polygon
+from matplotlib.lines import Line2D
+
+
+import matplotlib
 import cv2 
 import math 
 import pyclipper
 from scipy.spatial import ConvexHull
 import gymnasium as gym 
 from gymnasium import spaces, envs
+import cv2
+import torch
+import gc
+import sys 
 
 class FieldEnv(gym.Env):
     def __init__(self, max_size=1000, num_points=8, vehicle_width=10, sub_steps=10):
@@ -73,7 +83,42 @@ class FieldEnv(gym.Env):
         self.path = [self.start_point]  
         self.left_edge = []
         self.right_edge = []
+
+        self.fig = None
+        self.path_line = None
        
+    '''
+        print(
+        sys.getsizeof(self.max_size),
+        sys.getsizeof(self.num_points),
+        sys.getsizeof(self.vehicle_width),
+        sys.getsizeof(self.sub_steps),
+        sys.getsizeof(self.action_space),
+        sys.getsizeof(self.observation_space),
+        sys.getsizeof(self.observation_space),
+        sys.getsizeof(self.cover_polygon), 
+        sys.getsizeof(self.cover_matrix),  
+        sys.getsizeof(self.start_point),          
+        sys.getsizeof(self.heading),  
+        sys.getsizeof(self.new_polygon),  
+        sys.getsizeof(self.outside), 
+        sys.getsizeof(self.old_visits), 
+        sys.getsizeof(self.completed), 
+        sys.getsizeof(self.new_area), 
+        sys.getsizeof(self.overlap_area),
+        sys.getsizeof(self.inital_field_size), 
+        sys.getsizeof(self.polygon),          
+        sys.getsizeof(self.path_polygon),
+        sys.getsizeof(self.fig),
+        sys.getsizeof(self.visit_matrix),
+        sys.getsizeof(self.path),
+        sys.getsizeof(self.left_edge),
+        sys.getsizeof(self.right_edge),
+        sys.getsizeof(self.bounding_box),
+        sys.getsizeof(self.matrix)
+        )
+    '''
+
 
     def create_field(self):
         points = np.random.randint(0, self.max_size, size=(self.num_points, 2))
@@ -157,7 +202,6 @@ class FieldEnv(gym.Env):
                 return 
             cumulative_distance += segment_length
 
-
     def next_point_in_path(self, spline_len, spline_angle_degrees, start = False):
         x1, y1 = self.path[-1]
         total_angle_radians = math.radians(self.heading + spline_angle_degrees)
@@ -231,7 +275,6 @@ class FieldEnv(gym.Env):
             new_left_edge.extend([top])
             new_right_edge.extend([bot])
 
-
         self.cover_polygon = new_left_edge + list(reversed(new_right_edge))
         if self.cover_polygon[0] != self.cover_polygon[-1]:
             self.cover_polygon.append(self.cover_polygon[0])
@@ -274,7 +317,6 @@ class FieldEnv(gym.Env):
         self.calculate_new_area()
         self.calculate_overlap_area()
 
-    
     ### RL LOGIC ###     
     
     def reset(self, seed=None, options=None):
@@ -290,7 +332,7 @@ class FieldEnv(gym.Env):
 
         info = {} # To do add some info 
 
-        return (observation, info)
+        return observation, info
 
     def step(self, action):
         terminated = False
@@ -298,7 +340,8 @@ class FieldEnv(gym.Env):
         visualize = False
         
         # Implement environment dynamics
-        steering_angle = action[0] *  60 
+        steering_angle = action[0] * 60 # Normalized Steering 
+        
         distance = action[1] * 100
        
         # Example: update state based on action
@@ -328,17 +371,76 @@ class FieldEnv(gym.Env):
         if self.completed:
             reward += delta
     
-    # Check for boundary violations or other termination conditions (not shown)
+    # Check for boundary violations
         if self.outside: 
             reward -= psi
             terminated = True
-    
-    # Visualization (if requested)
-    #    if visualize:
-    #        self.visualize(show_visits=True)
-    
-    # Return the reward, the current state, and other information typically needed by RL algorithms
-        #print(f"Steering Angle: {steering_angle}, Distance: {distance}, Reward: {reward}")
+        
+        return observation, reward, terminated, truncated, {}   
 
-        return observation, reward, terminated, truncated, {}   # Simplified return statement
+    def render(self):
+        # Create a larger blank image for super-sampling
+        scale_factor = 4
+        img_size = (1000 * scale_factor, 800 * scale_factor)
+        img = np.ones((img_size[1], img_size[0], 3), dtype=np.uint8) * 255  # White background
 
+        # Define scale factors to map field coordinates to image coordinates
+        margin = 0.1  # 10% margin
+        plot_bbox = [
+            self.bounding_box[0] - (self.bounding_box[1] - self.bounding_box[0]) * margin,
+            self.bounding_box[1] + (self.bounding_box[1] - self.bounding_box[0]) * margin,
+            self.bounding_box[2] - (self.bounding_box[3] - self.bounding_box[2]) * margin,
+            self.bounding_box[3] + (self.bounding_box[3] - self.bounding_box[2]) * margin
+        ]
+        scale_x = img_size[0] / (plot_bbox[1] - plot_bbox[0])
+        scale_y = img_size[1] / (plot_bbox[3] - plot_bbox[2])
+        
+        def map_to_img(point):
+            x = int((point[0] - plot_bbox[0]) * scale_x)
+            y = img_size[1] - int((point[1] - plot_bbox[2]) * scale_y)  # Invert y-axis
+            return (x, y)
+
+        # Draw the field polygon
+        field_poly = np.array([map_to_img(p) for p in self.polygon], np.int32)
+        cv2.fillPoly(img, [field_poly], color=(230, 250, 230))  # Light green
+        cv2.polylines(img, [field_poly], isClosed=True, color=(0, 128, 0), thickness=3*scale_factor)  # Dark green border
+
+        # Draw the path
+        path_points = np.array([map_to_img(p) for p in self.path], np.int32)
+        cv2.polylines(img, [path_points], isClosed=False, color=(220, 20, 60), thickness=3*scale_factor)  # Crimson path
+
+        # Draw the path polygon
+        path_poly = np.array([map_to_img(p) for p in self.path_polygon], np.int32)
+        overlay = img.copy()
+        cv2.fillPoly(overlay, [path_poly], color=(220, 20, 60))  # Crimson fill
+        cv2.addWeighted(overlay, 0.3, img, 0.7, 0, img)  # Blend for transparency
+
+        # Draw gridlines
+        grid_color = (152, 184, 183)
+        for x in np.linspace(plot_bbox[0], plot_bbox[1], 11):
+            start = map_to_img((x, plot_bbox[2]))
+            end = map_to_img((x, plot_bbox[3]))
+            cv2.line(img, start, end, grid_color, 1*scale_factor)
+        for y in np.linspace(plot_bbox[2], plot_bbox[3], 11):
+            start = map_to_img((plot_bbox[0], y))
+            end = map_to_img((plot_bbox[1], y))
+            cv2.line(img, start, end, grid_color, 1*scale_factor)
+
+        # Resize the image to the original size
+        img = cv2.resize(img, (1000, 800), interpolation=cv2.INTER_AREA)
+
+        # Display the image
+        cv2.imshow('Plot', img)
+        cv2.waitKey(1000)  # Wait for a key event (1ms delay)
+       
+        # Store the image if needed
+        #self.img = img
+
+        # Optionally save the image
+        #cv2.imwrite('field_map_with_path.png', img)
+
+
+    def close(self):
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+        

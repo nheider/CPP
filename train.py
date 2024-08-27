@@ -14,7 +14,7 @@ for _ in range(1000):
 '''
 
 # cleanRL Code 
-
+from memory_profiler import profile
 import RL_CPP 
 
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
@@ -34,6 +34,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 from RL_CPP.wrappers import VisualizeWrapper
 
+import gc 
+import psutil
+import tracemalloc
+
+
 
 @dataclass
 class Args:
@@ -41,7 +46,7 @@ class Args:
     """the name of this experiment"""
     seed: int = 1
     """seed of the experiment"""
-    torch_deterministic: bool = True
+    torch_deterministic: bool = False ###!
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
@@ -51,9 +56,9 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
-    capture_video: bool = True
+    capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    save_model: bool = True
+    save_model: bool = False
     """whether to save model into the `runs/{run_name}` folder"""
     save_checkpoints: bool = False
     """Wheter to save the model periodically"""
@@ -63,10 +68,8 @@ class Args:
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
-    visualize: bool = False 
+    visualize: bool = True 
     """wether to visualize the agent periodically"""
-    visualize_frequency = 50
-    """How often to visualize the agent (i.e.: every n steps)"""
 
     # Algorithm specific arguments
     env_id: str = "FieldEnv-v0"
@@ -101,7 +104,7 @@ class Args:
     """coefficient of the value function"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
-    target_kl: tyro.conf.Suppress[float] = None
+    target_kl: float = None
     """the target KL divergence threshold"""
 
     # to be filled in runtime
@@ -162,6 +165,10 @@ class Agent(nn.Module):
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
 if __name__ == "__main__":
+
+    tracemalloc.start()
+    snapshot1 = tracemalloc.take_snapshot()
+
     args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
@@ -180,11 +187,11 @@ if __name__ == "__main__":
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
+    #writer = SummaryWriter(f"runs/{run_name}")
+    #writer.add_text(
+    #    "hyperparameters",
+    #    "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    #)
 
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
@@ -192,7 +199,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "mps" if torch.backends.mps.is_available() else "cpu")
-   
+    #device = "cpu"
+
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
@@ -249,29 +257,7 @@ if __name__ == "__main__":
                     if info and "episode" in info:
                         print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                         writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-
-            if args.visualize and args.visualize_frequency % (step+1) == 0:
-                vis_env = VisualizeWrapper(gym.make(args.env_id))
-                agent.eval()
-
-                episodic_returns = []
-
-                observation, _ = vis_env.reset()
-                done = False
-                total_reward = 0
-
-                with torch.no_grad(): 
-                    while not done:
-                        action, _, _, _ = agent.get_action_and_value(torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(device))
-                        observation, reward, terminated, truncated, info = vis_env.step(action.squeeze(0).cpu().numpy())
-                        done = np.logical_or(terminations, truncations)
-                        total_reward += reward
-                        episodic_returns.append(total_reward)
-                vis_env.close()
-                print(f"Return of the test environment: {sum(episodic_returns) / len(episodic_returns)}")
-                agent.train()
-                
+                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)   
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -298,6 +284,12 @@ if __name__ == "__main__":
         b_returns = returns.reshape(-1)
         print(f"Mean Batch Return: {torch.mean(b_returns)}")
         b_values = values.reshape(-1)
+
+
+        process = psutil.Process()
+        mem_info = process.memory_info()
+        print("1", mem_info.rss / (1024 * 1024))
+
 
         # Optimizing the policy and value network
         print("Optimizing the policy and value network...")
@@ -351,13 +343,16 @@ if __name__ == "__main__":
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
 
+
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
+
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
+        '''
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
@@ -377,7 +372,53 @@ if __name__ == "__main__":
             model_path = f"{checkpoints_dir}/{args.exp_name}_{iteration}.cleanrl_model"
             torch.save(agent.state_dict(), model_path)
             print(f"Checkpoint at iteration {iteration} saved to {model_path}")
+            
+        '''
+        process = psutil.Process()
+        mem_info = process.memory_info()
+        print("2", mem_info.rss / (1024 * 1024))
 
+        snapshot2 = tracemalloc.take_snapshot()
+        if args.visualize:
+            agent.eval()
+            with torch.no_grad(): 
+                test_env = gym.make(args.env_id)
+                i = 0 
+                terminated = False 
+                truncated = False
+                observation, _ = test_env.reset()
+                while not terminated and not truncated and i <= 1000:
+                    #print(agent.get_action_and_value(torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device).shape))
+                    action,_,_,_ = agent.get_action_and_value(torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(device))
+                    observation, reward, terminated, truncated, info = test_env.step(action.squeeze(0).cpu().numpy())
+                    test_env.render()
+                    if terminated or truncated:
+                        print(f"Test Episode ended after", i, "steps")
+                        del observation
+                        test_env.close()
+                    i += 1
+            agent.train()
+
+        process = psutil.Process()
+        mem_info = process.memory_info()
+        print("3", mem_info.rss / (1024 * 1024))
+
+        snapshot3 = tracemalloc.take_snapshot()
+
+        top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+        top_stats1 = snapshot3.compare_to(snapshot2, 'lineno')
+
+        print("[ Top 10 differences ]")
+        for stat in top_stats[:10]:
+            print(stat)
+
+        print("[ Top 10 differences ]")
+        for stat in top_stats1[:10]:
+            print(stat)
+
+
+
+    
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
@@ -403,6 +444,8 @@ if __name__ == "__main__":
             repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
             repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
             push_to_hub(args, episodic_returns, repo_id, "PPO", f"runs/{run_name}", f"videos/{run_name}-eval")
+    
 
     envs.close()
-    writer.close()
+    
+    #writer.close()

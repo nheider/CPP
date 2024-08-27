@@ -2,3 +2,4 @@ wandb
 runs 
 RL_CPP.egg-info
 .DS_Store
+debug.py
