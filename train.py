@@ -14,7 +14,7 @@ for _ in range(1000):
 '''
 
 # cleanRL Code 
-from memory_profiler import profile
+
 import RL_CPP 
 
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy

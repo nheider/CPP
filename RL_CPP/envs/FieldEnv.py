@@ -34,6 +34,8 @@ class FieldEnv(gym.Env):
         self.num_points = num_points
         self.vehicle_width = vehicle_width # The width of the vehicles covered path 
         self.sub_steps = sub_steps          # Number of picewise linear spline points of the path segments, higher := better resolution
+        self.num_lidar_rays = 36
+        self.path = None
 
         # intialize action and observation space 
         self.action_space = spaces.Box(
@@ -45,9 +47,9 @@ class FieldEnv(gym.Env):
 
         # Observation space: 1000x1000 matrix
         self.observation_space = spaces.Box(
-            low=np.array([0] * 1000000 + [0, 0] + [-360]),
-            high=np.array([99] * 1000000 + [1000.0, 1000.0] + [360]),
-            shape=(1000003,),
+            low=np.array([0] * 1000000 + [0, 0] + [-360] + [0] * self.num_lidar_rays),
+            high=np.array([99] * 1000000 + [1000.0, 1000.0] + [360] + [1000.0] * self.num_lidar_rays),
+            shape=(1000003 + self.num_lidar_rays,),
             dtype=np.float32
         )
 
@@ -72,10 +74,12 @@ class FieldEnv(gym.Env):
         self.inital_field_size = None 
         self.polygon = None                # Stores the field 
         self.path_polygon = None
-        
+        self.num_lidar_rays = 36
+
         self.create_field()
         self.create_field_matrix()
         self.random_point_on_polygon_perimeter()
+        
 
         self.visit_matrix = np.zeros_like(self.matrix, dtype=np.int32) # Records the number of times each cell gets visited, used for visualization        
 
@@ -86,6 +90,12 @@ class FieldEnv(gym.Env):
 
         self.fig = None
         self.path_line = None
+
+        self.lidar_distances = None
+
+        self.get_lidar_distances()
+
+        
        
     '''
         print(
@@ -118,7 +128,6 @@ class FieldEnv(gym.Env):
         sys.getsizeof(self.matrix)
         )
     '''
-
 
     def create_field(self):
         points = np.random.randint(0, self.max_size, size=(self.num_points, 2))
@@ -168,7 +177,7 @@ class FieldEnv(gym.Env):
         }
     
     def check_if_outside(self):
-        if ((self.matrix == 99) & (self.cover_matrix == 1)).any(): 
+        if ((self.matrix == 99) & (self.cover_matrix == 1)).any() & (len(self.path)>11): #  take at least one step
             self.outside = True
             return 
 
@@ -307,11 +316,61 @@ class FieldEnv(gym.Env):
     def check_if_completed(self):
         self.completed = np.all((self.matrix == 99) | (self.matrix == 1))
 
+    def get_lidar_distances(self):
+        current_position = np.array(self.path[-1])
+        lidar_distances = []
+
+        for i in range(self.num_lidar_rays):
+            angle = (self.heading + i * (360 / self.num_lidar_rays)) % 360
+            angle_rad = np.radians(angle)
+            
+            # Calculate the end point of the ray
+            ray_end = current_position + 1000 * np.array([np.cos(angle_rad), np.sin(angle_rad)])
+
+            # Check for intersection with polygon edges
+            min_distance = 1000  # Initialize with max distance
+
+            for j in range(len(self.polygon)):
+                p1 = np.array(self.polygon[j])
+                p2 = np.array(self.polygon[(j + 1) % len(self.polygon)])
+                
+                # Calculate intersection using line segments
+                intersection_point = self._line_intersection(current_position, ray_end, p1, p2)
+                
+                if intersection_point is not None:
+                    distance = np.linalg.norm(intersection_point - current_position)
+                    if distance < min_distance:
+                        min_distance = distance
+            
+            lidar_distances.append(min_distance)
+
+        self.lidar_distances =  np.array(lidar_distances, dtype=np.float32)
+
+    def _line_intersection(self, p1, p2, q1, q2):
+        # Calculate the intersection of two line segments p1-p2 and q1-q2
+        r = p2 - p1
+        s = q2 - q1
+        r_cross_s = np.cross(r, s)
+        
+        if r_cross_s == 0:
+            return None  # Lines are parallel or collinear
+
+        t = np.cross((q1 - p1), s) / r_cross_s
+        u = np.cross((q1 - p1), r) / r_cross_s
+
+        if 0 <= t <= 1 and 0 <= u <= 1:
+            intersection_point = p1 + t * r
+            return intersection_point
+
+        return None
+
+
     def simulation_step(self, distance, steering_angle, visualize=False): 
         self.extend_path(distance=distance, steering_angle=steering_angle)
         self.create_cover_matrix()
         self.update_matrix()
         self.update_visit_counts()
+        self.get_lidar_distances()
         self.check_if_completed()
         self.check_if_outside()
         self.calculate_new_area()
@@ -327,7 +386,8 @@ class FieldEnv(gym.Env):
         observation = np.concatenate([
             self.matrix.flatten(),
             np.array(self.path[-1], dtype=np.float32),
-            np.array([self.heading], dtype=np.float32)
+            np.array([self.heading], dtype=np.float32),
+            self.lidar_distances
         ])
 
         info = {} # To do add some info 
@@ -342,20 +402,21 @@ class FieldEnv(gym.Env):
         # Implement environment dynamics
         steering_angle = action[0] * 60 # Normalized Steering 
         
-        distance = action[1] * 100
+        distance = action[1] * 10
        
         # Example: update state based on action
      
         self.simulation_step(distance = distance, steering_angle=steering_angle)
-
+       
         observation = np.concatenate([
             self.matrix.flatten(),
             np.array(self.path[-1], dtype=np.float32),
-            np.array([self.heading], dtype=np.float32)
+            np.array([self.heading], dtype=np.float32),
+            self.lidar_distances
         ])
     
         # Reward calculation
-        alpha = 50  # Reward for new area covered
+        alpha = 1000  # Reward for new area covered
         beta = 0   # Penalty for overlap area !!! Overlap is buggy right now 
         #gamma = 0.1 # Small time step penalty
         delta = 1000 # Large reward for completing the task
@@ -366,7 +427,7 @@ class FieldEnv(gym.Env):
 
     # Reward components
         #print("new area: ", self.env.new_area)
-        reward = (alpha * (self.new_area/norm)*1000) - (beta * self.overlap_area) #- gamma
+        reward = (alpha * (self.new_area/norm)*10000)/ (distance*0.8) - (beta * self.overlap_area) #- gamma
     # If task is completed, give a large bonus
         if self.completed:
             reward += delta
@@ -375,6 +436,9 @@ class FieldEnv(gym.Env):
         if self.outside: 
             reward -= psi
             terminated = True
+
+        self.reward = reward
+        #self.distance = distance
         
         return observation, reward, terminated, truncated, {}   
 
@@ -430,14 +494,17 @@ class FieldEnv(gym.Env):
         img = cv2.resize(img, (1000, 800), interpolation=cv2.INTER_AREA)
 
         # Display the image
-        cv2.imshow('Plot', img)
+        #cv2.imshow('Plot', img)
         cv2.waitKey(1000)  # Wait for a key event (1ms delay)
        
         # Store the image if needed
         #self.img = img
 
         # Optionally save the image
-        #cv2.imwrite('field_map_with_path.png', img)
+        print("Outside:", self.outside)
+        print("Rewards:", self.reward)
+        print(len(self.path))
+        cv2.imwrite('field_map_with_path.png', img)
 
 
     def close(self):
