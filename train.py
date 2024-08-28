@@ -15,7 +15,7 @@ for _ in range(1000):
 
 # cleanRL Code 
 
-import RL_CPP 
+import RL_CPP # Coverage Path Planning (should rename this to not cause confusion lol) 
 
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 import os
@@ -72,7 +72,7 @@ class Args:
     """wether to visualize the agent periodically"""
 
     # Algorithm specific arguments
-    env_id: str = "FieldEnv-v0"
+    env_id: str = "FieldEnv-v1"
     """the id of the environment"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""

@@ -1,6 +1,6 @@
 from gymnasium.envs.registration import register
 
 register(
-    id="FieldEnv-v0",
+    id="FieldEnv-v1",
     entry_point="RL_CPP.envs:FieldEnv",
 )
