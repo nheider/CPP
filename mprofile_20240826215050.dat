@@ -1,4 +1,0 @@
-CMDLINE /opt/homebrew/Caskroom/miniforge/base/bin/python3.9 train.py
-MEM 0.187500 1724701850.1687
-MEM 24.906250 1724701850.2739
-MEM 41.140625 1724701850.3759

@@ -31,13 +31,7 @@ import torch.optim as optim
 import tyro
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
-
-from RL_CPP.wrappers import VisualizeWrapper
-
-import gc 
-import psutil
-import tracemalloc
-
+import warnings
 
 
 @dataclass
@@ -166,10 +160,9 @@ class Agent(nn.Module):
 
 if __name__ == "__main__":
 
-    tracemalloc.start()
-    snapshot1 = tracemalloc.take_snapshot()
-
-    args = tyro.cli(Args)
+    with warnings.catch_warnings(): # To get rid of annoying tyro warning about wrong init type 
+        warnings.simplefilter("ignore")
+        args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
@@ -286,11 +279,6 @@ if __name__ == "__main__":
         b_values = values.reshape(-1)
 
 
-        process = psutil.Process()
-        mem_info = process.memory_info()
-        print("1", mem_info.rss / (1024 * 1024))
-
-
         # Optimizing the policy and value network
         print("Optimizing the policy and value network...")
         b_inds = np.arange(args.batch_size)
@@ -374,11 +362,6 @@ if __name__ == "__main__":
             print(f"Checkpoint at iteration {iteration} saved to {model_path}")
             
         '''
-        process = psutil.Process()
-        mem_info = process.memory_info()
-        print("2", mem_info.rss / (1024 * 1024))
-
-        snapshot2 = tracemalloc.take_snapshot()
         if args.visualize:
             agent.eval()
             with torch.no_grad(): 
@@ -398,23 +381,6 @@ if __name__ == "__main__":
                         test_env.close()
                     i += 1
             agent.train()
-
-        process = psutil.Process()
-        mem_info = process.memory_info()
-        print("3", mem_info.rss / (1024 * 1024))
-
-        snapshot3 = tracemalloc.take_snapshot()
-
-        top_stats = snapshot2.compare_to(snapshot1, 'lineno')
-        top_stats1 = snapshot3.compare_to(snapshot2, 'lineno')
-
-        print("[ Top 10 differences ]")
-        for stat in top_stats[:10]:
-            print(stat)
-
-        print("[ Top 10 differences ]")
-        for stat in top_stats1[:10]:
-            print(stat)
 
 
 

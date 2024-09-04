@@ -3,12 +3,17 @@ import gymnasium as gym
 from gymnasium import spaces
 from scipy.spatial import ConvexHull
 import math
-from shapely.geometry import Polygon, Point, LineString
+from shapely.geometry import Polygon, Point, LineString, MultiPoint, MultiPolygon
 from shapely.ops import unary_union
+from shapely import coverage_union, union, difference
 import cv2
+import matplotlib.pyplot as plt 
+import time
+
+# Currently we are normalizing the observation using the largest possible distance, maybe the largest distance in each env would be better 
 
 class FieldEnv(gym.Env):
-    def __init__(self, max_size=1, num_points=8, vehicle_width=0.1, sub_steps=10, num_lidar_rays=20):
+    def __init__(self, max_size=100, num_points=8, vehicle_width=1, sub_steps=10, num_lidar_rays=20, local_view_size=20, grid_size=50):
         super(FieldEnv, self).__init__()
 
         self.max_size = max_size
@@ -16,6 +21,9 @@ class FieldEnv(gym.Env):
         self.vehicle_width = vehicle_width
         self.sub_steps = sub_steps
         self.num_lidar_rays = num_lidar_rays
+        self.lidar_data = []
+        self.local_view_size = local_view_size
+        self.grid_size = grid_size
 
         # Normalized action space: segment distance and curvature
         self.action_space = spaces.Box(
@@ -25,16 +33,16 @@ class FieldEnv(gym.Env):
             dtype=np.float32
         )
 
-        # Normalized observation space: num_rays with normalized distances
+        # Normalized observation space: num_rays with normalized distances + flattened grid
         self.observation_space = spaces.Box(
             low=0,
             high=1,
-            shape=(self.num_lidar_rays,),
+            shape=(self.num_lidar_rays + (grid_size**2),),
             dtype=np.float32
         )
 
     def create_field(self):
-        points = np.random.rand(self.num_points, 2)
+        points = np.random.uniform(0, self.max_size, (self.num_points, 2))
         hull = ConvexHull(points)
         field_polygon = points[hull.vertices].tolist()
         self.shapely_field_poly = Polygon(field_polygon)
@@ -144,27 +152,62 @@ class FieldEnv(gym.Env):
         cover_polygon = Polygon(left_edge + list(reversed(right_edge)))
         self.shapely_cover_poly = cover_polygon
 
-        if self.shapely_path_poly is None or self.shapely_path_poly.area < 100:
+        if self.shapely_path_poly is None:
             self.shapely_path_poly = self.shapely_cover_poly
         else:
+            
+            '''
+            # Plot the polygon of the path 
+            x, y = self.shapely_cover_poly.exterior.xy
+            x2,y2 = self.shapely_path_poly.exterior.xy
+            plt.figure()
+            plt.plot(x, y)
+            plt.plot(x2, y2)
+            plt.fill(x, y, alpha=0.5, fc='red', ec='black')  # Fill the polygon with some color
+            plt.show()
+            '''
+            
+            #combined_coords = list(self.shapely_path_poly.exterior.coords) + list(cover_polygon.exterior.coords)
+            #self.shapely_path_pol = Polygon(combined_coords)
+            # Step 4: Create a new polygon with the combined coordinates
+            
             self.shapely_path_poly = unary_union([self.shapely_path_poly, self.shapely_cover_poly])
+
+            '''
+            holes = [list(interior.coords) for interior in self.shapely_path_poly.interiors]
+            if len(holes) != 0: 
+                x, y = self.shapely_path_poly.exterior.xy
+            
+                plt.figure()
+                #plt.plot(x, y)
+                #plt.fill(x, y, alpha=0.5, fc='red')  # Fill the polygon with some color
+                
+                for hole in holes:
+                    hx, hy = zip(*hole)
+                    plt.plot(hx, hy, label='Hole')
+                    plt.fill(hx, hy, alpha=1, fc='white')
+                plt.show()
+            '''
+
+                
+    def calculate_overlap(self): 
+        return(self.shapely_path_poly.intersection(self.shapely_cover_poly).area)
+                            
 
     def extend_path(self, distance, steering_angle):
         self.steering_to_curve(distance=distance, steering_angle=steering_angle)
 
     def calc_intersect_area(self, poly_1, poly_2):
-        if poly_2.area < 150:
-            intersect_area = 0
-        else:
-            intersect_area = poly_1.intersection(poly_2).area
+        intersect_area = poly_1.intersection(poly_2).area
         return intersect_area
 
     def check_if_completed(self):
-        return (self.shapely_field_poly.area == self.calc_intersect_area(self.shapely_field_poly, self.shapely_path_poly))
+        return (self.shapely_field_poly.area == self.shapely_path_poly.area)
 
     def get_lidar_distances(self):
         current_position = np.array(self.path[-1])
         lidar_data = []
+        norm_dist = None
 
         for i in range(self.num_lidar_rays):
             # Calculate the angle for this ray
@@ -172,11 +215,10 @@ class FieldEnv(gym.Env):
             angle_rad = np.radians(angle)
 
             # Calculate the end point of the ray
-            ray_end = current_position + 1000 * np.array([np.cos(angle_rad), np.sin(angle_rad)])
+            ray_end = current_position + (self.max_size*math.sqrt(2)) * np.array([np.cos(angle_rad), np.sin(angle_rad)])
             ray_line = LineString([current_position, ray_end])
 
             # Check for intersection with polygon edges
-            min_distance = 1000  # Initialize with max distance
             for j in range(len(self.shapely_field_poly.exterior.coords) - 1):
                 line = LineString([self.shapely_field_poly.exterior.coords[j], self.shapely_field_poly.exterior.coords[j + 1]])
                 intersection = ray_line.intersection(line)
@@ -184,19 +226,21 @@ class FieldEnv(gym.Env):
                 if intersection.is_empty:
                     continue
 
-                if intersection.geom_type == 'Point':
-                    distance = np.linalg.norm(np.array(intersection.xy) - current_position)
-                elif intersection.geom_type == 'MultiPoint':
-                    distance = min(np.linalg.norm(np.array(p.xy) - current_position) for p in intersection)
-                else:
-                    continue
-
-                if distance < min_distance:
-                    min_distance = distance
-
+                if isinstance(intersection, Point):
+                    distance = np.linalg.norm(np.array(intersection.coords[0]) - current_position)
+                
+                elif isinstance(intersection, MultiPoint):
+                # If there are multiple intersections, choose the closest one
+                    distances = [np.linalg.norm(np.array(point.coords[0]) - current_position) for point in intersection.geoms]
+                    distance = min(distances)
+               
+                #distance = np.linalg.norm(np.array(intersection.xy) - current_position)
+                norm_dist = distance / (self.max_size*math.sqrt(2))
+                
             # Store the angle and corresponding minimum distance
-            lidar_data.append((angle, min_distance))
+            lidar_data.append((angle, norm_dist))
 
+        self.lidar_data = lidar_data
         return lidar_data
 
     def check_if_inside(self):
@@ -213,8 +257,11 @@ class FieldEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.reset_environment()
-        _, obs = zip(*self.get_lidar_distances())
-        obs = np.asarray(obs, dtype=np.float32)
+        _, lidar = zip(*self.get_lidar_distances())
+        lidar = np.asarray(lidar, dtype=np.float32)
+
+        obs = np.concatenate([lidar, self.get_local_coverage()])
+
         info = {}  # To do: add some info
         return obs, info
 
@@ -222,21 +269,26 @@ class FieldEnv(gym.Env):
         terminated = False
         truncated = False
 
-        steering_angle = action[0]   # Normalized Steering
-        distance = action[1] 
+        # The algorithm gives normalized actions (steering: +/-1 and distance: 0-1)
+        steering_angle = action[0] * 60  # Steering is +/- 60 
+        distance = action[1] * (self.max_size/10) + 1 # Max Segment Size is 1/10 max field size. We also have a min distance.
 
         self.extend_path(steering_angle=steering_angle, distance=distance)
 
-        _, obs = zip(*self.get_lidar_distances())
-        obs = np.asarray(obs, dtype=np.float32)
+        _, lidar = zip(*self.get_lidar_distances())
+        lidar = np.asarray(lidar, dtype=np.float32)
 
-        alpha = 1000  # Reward for new area covered
-        beta = 0   # Penalty for overlap area !!! Overlap is not yet implemented
-        delta = 1000 # Large reward for completing the task
-        psi = 100 # Large penalty for leaving the field
-        norm = abs(self.shapely_field_poly.area) # larger fields should get more reward by default
+        obs = np.concatenate([lidar, self.get_local_coverage()])
 
-        reward = (alpha * (abs(self.shapely_cover_poly.area) / norm) * 10000) / (distance * 0.8)  # - (beta * self.overlap_area)
+        overlap = self.calculate_overlap()
+
+        alpha = 1.0  # Reward for new area covered
+        beta = 0.5   # Penalty for overlap area
+        delta = 1.0  # Reward for completing the task
+        psi = 1.0    # Penalty for leaving the field
+        norm_area = abs(self.shapely_field_poly.area)
+
+        reward = (alpha * (abs(self.shapely_cover_poly.area) / norm_area))  - (beta * overlap)
 
         if self.check_if_completed():
             reward += delta
@@ -245,11 +297,51 @@ class FieldEnv(gym.Env):
             reward -= psi
             terminated = True
 
+        self.terminated = terminated
         self.reward = reward
 
         return obs, reward, terminated, truncated, {}
+    
+    def get_local_coverage(self):
+        current_pos = np.array(self.path[-1])
+        heading_radians = math.radians(self.heading+180)
+
+        half_size = self.local_view_size / 2
+        cell_size = self.local_view_size / self.grid_size
+
+        rot_matrix = np.array([
+            [math.cos(heading_radians), -math.sin(heading_radians)],
+            [math.sin(heading_radians), math.cos(heading_radians)]
+        ])
+
+        local_coverage = np.zeros(self.grid_size * self.grid_size, dtype=np.float32)
+
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                cell_center_local = np.array([
+                    (i - self.grid_size / 2 + 0.5) * cell_size,
+                    (j - self.grid_size / 2 + 0.5) * cell_size
+                ])
+                
+                cell_center_rotated = np.dot(rot_matrix, cell_center_local)
+                cell_center_global = current_pos + cell_center_rotated
+                cell_center = Point(cell_center_global[0], cell_center_global[1])
+
+                index = i * self.grid_size + j
+
+                if self.shapely_field_poly.contains(cell_center):
+                    if self.shapely_path_poly and self.shapely_path_poly.contains(cell_center):
+                        local_coverage[index] = 1.0
+                    else:
+                        local_coverage[index] = 0.5
+                else:
+                    local_coverage[index] = 0.0
+
+        return local_coverage
 
     def render(self):
+        #if not self.check_if_inside():
+        #    return
         # Create a larger blank image for super-sampling
         scale_factor = 4
         img_size = (1000 * scale_factor, 800 * scale_factor)
@@ -277,17 +369,6 @@ class FieldEnv(gym.Env):
         cv2.fillPoly(img, [field_poly], color=(230, 250, 230))  # Light green
         cv2.polylines(img, [field_poly], isClosed=True, color=(0, 128, 0), thickness=3*scale_factor)  # Dark green border
 
-        # Draw the path
-        path_points = np.array([map_to_img(p) for p in self.path], np.int32)
-        cv2.polylines(img, [path_points], isClosed=False, color=(220, 20, 60), thickness=3*scale_factor)  # Crimson path
-
-        # Draw the path polygon
-        if self.shapely_path_poly is not None:
-            path_poly = np.array([map_to_img(p) for p in list(self.shapely_path_poly.exterior.coords)], np.int32)
-            overlay = img.copy()
-            cv2.fillPoly(overlay, [path_poly], color=(220, 20, 60))  # Crimson fill
-            cv2.addWeighted(overlay, 0.3, img, 0.7, 0, img)  # Blend for transparency
-
         # Draw gridlines
         grid_color = (152, 184, 183)
         for x in np.linspace(plot_bbox[0], plot_bbox[1], 11):
@@ -299,52 +380,93 @@ class FieldEnv(gym.Env):
             end = map_to_img((plot_bbox[1], y))
             cv2.line(img, start, end, grid_color, 1*scale_factor)
 
-        # Draw LIDAR rays
-        lidar_data = self.get_lidar_distances()
-        robot_position = map_to_img(self.path[-1])
+        # Draw the path
+        path_points = np.array([map_to_img(p) for p in self.path], np.int32)
+        cv2.polylines(img, [path_points], isClosed=False, color=(220, 20, 60), thickness=3*scale_factor)  # Crimson path
 
-        for angle, distance in lidar_data:
-            angle_rad = np.radians(angle)
-            ray_end = (
-                self.path[-1][0] + distance * np.cos(angle_rad),
-                self.path[-1][1] + distance * np.sin(angle_rad)
-            )
-            ray_end_img = map_to_img(ray_end)
+        # Draw the path polygon
+        if self.shapely_path_poly is not None:
+            overlay = img.copy()
+            
+            # Draw exterior
+            path_poly = np.array([map_to_img(p) for p in list(self.shapely_path_poly.exterior.coords)], np.int32)
+            cv2.fillPoly(overlay, [path_poly], color=(220, 20, 60))  # Crimson fill
+            
+            # Draw interiors (holes)
+            for interior in self.shapely_path_poly.interiors:
+                hole_poly = np.array([map_to_img(p) for p in interior.coords], np.int32)
+                cv2.fillPoly(overlay, [hole_poly], color=(230, 250, 230))  # Fill holes with light green (same as field color)
+            
+            cv2.addWeighted(overlay, 0.3, img, 0.7, 0, img)  # Blend for transparency
 
-            # Draw the LIDAR ray
-            cv2.line(img, robot_position, ray_end_img, color=(0, 0, 255), thickness=1*scale_factor)  # Red LIDAR rays
 
+        # Draw LIDAR rays if not terminated 
+        if not self.terminated: 
+            lidar_data = self.lidar_data
+            robot_position = map_to_img(self.path[-1])
+
+            for angle, distance in lidar_data:
+                angle_rad = np.radians(angle)
+                ray_end = (
+                    self.path[-1][0] + (distance*(self.max_size*math.sqrt(2))) * np.cos(angle_rad),
+                    self.path[-1][1] + (distance*(self.max_size*math.sqrt(2))) * np.sin(angle_rad)
+                )
+                ray_end_img = map_to_img(ray_end)
+
+                # Draw the LIDAR ray
+                cv2.line(img, robot_position, ray_end_img, color=(0, 0, 255), thickness=1*scale_factor)  # Red LIDAR rays
+
+
+         # Draw the local coverage grid
+        local_coverage = self.get_local_coverage().reshape(self.grid_size, self.grid_size)
+        inset_size = 600  # Increased size of the inset
+        cell_size = max(1, int(inset_size / self.grid_size))  # Adjust cell size based on new inset size
+        inset = np.ones((inset_size, inset_size, 3), dtype=np.uint8) * 255
+
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                color = (255, 255, 255)  # White for outside field
+                if local_coverage[i, j] == 0.5:
+                    color = (230, 250, 230)  # Light green for unvisited
+                elif local_coverage[i, j] == 1.0:
+                    color = (220, 20, 60)  # Crimson for visited
+                
+                cv2.rectangle(inset, 
+                            (j*cell_size, i*cell_size), 
+                            ((j+1)*cell_size, (i+1)*cell_size), 
+                            color, -1)
+
+        # Add grid lines only if cells are large enough
+        if cell_size > 2:
+            for i in range(0, inset_size, cell_size):
+                cv2.line(inset, (i, 0), (i, inset_size), (200, 200, 200), 1)
+                cv2.line(inset, (0, i), (inset_size, i), (200, 200, 200), 1)
+
+        # Remove the title text
+
+        # Calculate the position to place the inset (top-right corner)
+        inset_position = (img.shape[1] - inset_size - 10, 10)
+
+        # Blend the inset into the main image
+        img[inset_position[1]:inset_position[1]+inset_size, 
+            inset_position[0]:inset_position[0]+inset_size] = inset
+        
+        # Add a black border around the inset
+        border_thickness = 3
+        cv2.rectangle(inset, (0, 0), (inset_size-1, inset_size-1), (0, 0, 0), border_thickness)
+
+        
         # Resize the image to the original size
         img = cv2.resize(img, (1000, 800), interpolation=cv2.INTER_AREA)
 
-        # Display the image
-        #cv2.imshow('Plot', img)
-        #cv2.waitKey(1000)  # Wait for a key event (1ms delay)
-
         # Optionally save the image
         cv2.imwrite('field_map_with_lidar.png', img)
+        time.sleep(0.2)
+        
 
     def close(self):
         cv2.destroyAllWindows()
         cv2.waitKey(1)
 
-    def draw_polygons(self, coords1, coords2):
-        # Convert lists of coordinates to numpy arrays suitable for cv2.polylines
-        poly1 = np.array(coords1, np.int32)
-        poly1 = poly1.reshape
-
-        poly1 = poly1.reshape((-1, 1, 2))
-        
-        poly2 = np.array(coords2, np.int32)
-        poly2 = poly2.reshape((-1, 1, 2))
-
-        # Create a blank image (let's assume 500x500 size with 3 color channels)
-        image = np.zeros((500, 500, 3), dtype=np.uint8)
-
-        # Draw the polygons (let's use different colors)
-        cv2.polylines(image, [poly1], isClosed=True, color=(0, 255, 0), thickness=3)  # Green color
-        cv2.polylines(image, [poly2], isClosed=True, color=(255, 0, 0), thickness=3)  # Blue color
-
-        # Save the image to the specified path
-        cv2.imwrite("test.png", image)
+   
 
