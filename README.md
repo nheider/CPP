@@ -1,4 +1,4 @@
-REASON-MC: RL for Efficient Sampling Of spatial FunctioNs with Movement Constraints
+**REASON-MC: RL for Efficient Sampling Of spatial FunctioNs with Movement Constraints**
 
 High-level planner for robots to efficently approximate a spatial function from exposure to previous samples of the function, with the robots movement constaints. 
 
